@@ -1,0 +1,7 @@
+criar um ambiente
+python3 -m venv .venv
+
+ativar o ambiente
+source .venv/bin/activate
+pip install -r requirements.txt
+streamlit run app.py

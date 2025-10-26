@@ -7,7 +7,7 @@ def insert_snapshot_and_fees(user_id, snapshot_date, df_assets):
 
     total_value = df_assets['valor_total'].sum()
 
-    # Inserir snapshot do portf�lio
+    # Inserir snapshot do portfólio
     cur.execute("""
         INSERT INTO t_portfolio_snapshots (snapshot_date, total_value)
         VALUES (%s, %s) RETURNING snapshot_id

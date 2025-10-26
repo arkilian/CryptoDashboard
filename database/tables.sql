@@ -7,7 +7,7 @@ CREATE TABLE t_users (
     is_admin BOOLEAN DEFAULT FALSE
 );
 
--- Fee Settings (com hist�rico)
+-- Fee Settings (com histórico)
 CREATE TABLE t_fee_settings (
     setting_id SERIAL PRIMARY KEY,
     maintenance_rate NUMERIC(6,4) NOT NULL DEFAULT 0.0025,
@@ -48,7 +48,7 @@ CREATE TABLE t_user_high_water (
     high_water_value NUMERIC(18,2) NOT NULL
 );
 
--- Hist�rico de taxas aplicadas
+-- Histórico de taxas aplicadas
 CREATE TABLE t_user_fees (
     fee_id SERIAL PRIMARY KEY,
     user_id INT REFERENCES t_users(user_id),

@@ -1,7 +1,7 @@
 from database.connection import get_connection
 
 def get_current_fee_settings():
-    """Obt�m a configura��o de taxas mais recente."""
+    """Obtém a configuração de taxas mais recente."""
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("""
@@ -66,14 +66,14 @@ def apply_fees(user_id, snapshot_date, total_value, valor_user):
             INSERT INTO t_user_fees (user_id, fee_type, amount, fee_date)
             VALUES (%s, 'performance', %s, %s)
         """, (user_id, performance_fee, snapshot_date))
-        valor_user -= performance_fee
+                valor_user -= performance_fee
 
-        cur.execute("""
-            INSERT INTO t_user_high_water (user_id, high_water_value)
-            VALUES (%s, %s)
-            ON CONFLICT (user_id) DO UPDATE
-              SET high_water_value = EXCLUDED.high_water_value
-        """, (user_id, valor_user))
+                cur.execute("""
+                        INSERT INTO t_user_high_water (user_id, high_water_value)
+                        VALUES (%s, %s)
+                        ON CONFLICT (user_id) DO UPDATE
+                            SET high_water_value = EXCLUDED.high_water_value
+                """, (user_id, valor_user))
 
     conn.commit()
     cur.close()

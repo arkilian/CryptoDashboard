@@ -1,18 +1,25 @@
 from .connection import get_connection
 from utils.security import hash_password, verify_password
+import psycopg2
+from psycopg2 import sql
 
 def create_user(username: str, password: str, is_admin: bool = False):
     conn = get_connection()
     cur = conn.cursor()
 
     pwd_hash, salt = hash_password(password)
-
-    cur.execute("""
-        INSERT INTO t_users (username, password_hash, salt, is_admin)
-        VALUES (%s, %s, %s, %s)
-        RETURNING user_id
-    """, (username, pwd_hash, salt, is_admin))
-    user_id = cur.fetchone()[0]
+    try:
+        cur.execute("""
+            INSERT INTO t_users (username, password_hash, salt, is_admin)
+            VALUES (%s, %s, %s, %s)
+            RETURNING user_id
+        """, (username, pwd_hash, salt, is_admin))
+        user_id = cur.fetchone()[0]
+    except psycopg2.errors.UniqueViolation:
+        conn.rollback()
+        cur.close()
+        conn.close()
+        raise
 
     conn.commit()
     cur.close()

@@ -1,2 +1,2 @@
-# CryptopDashboard
+# CryptoDashboard
 first version 

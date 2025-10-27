@@ -2,6 +2,10 @@ criar um ambiente
 python3 -m venv .venv
 
 ativar o ambiente
+em linux
 source .venv/bin/activate
+em windows
+.\.venv\Scripts\Activate.ps1
+
 pip install -r requirements.txt
 streamlit run app.py

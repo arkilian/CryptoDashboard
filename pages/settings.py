@@ -29,7 +29,8 @@ def show_settings_page():
         st.info("Ainda não existem configurações de taxas registadas.")
 
     # --- Alteração (apenas admin) ---
-    if st.session_state.get("user_id") == 1:  # admin
+    # Usa a flag is_admin em vez de comparar user_id == 1
+    if st.session_state.get("is_admin", True):
         st.subheader("Alterar Taxas")
         new_maintenance = st.number_input("Taxa de Manutenção (%)", value=fees['maintenance_rate']*100) / 100
         new_minimum = st.number_input("Mínimo da Taxa de Manutenção (€)", value=fees['maintenance_min'])

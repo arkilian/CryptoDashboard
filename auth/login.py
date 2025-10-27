@@ -13,6 +13,7 @@ def show_login_page():
             st.session_state["user_id"] = user["user_id"]
             st.session_state["username"] = user["username"]
             st.session_state["is_admin"] = user["is_admin"]
+            st.session_state["page"] = "portfolio"
             st.success(f"Bem-vindo {user['username']}!")
             st.rerun()
         else:

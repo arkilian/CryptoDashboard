@@ -10,13 +10,30 @@ def main():
     if "page" not in st.session_state:
         st.session_state["page"] = "login"
 
-    if "user_id" not in st.session_state:
-        if st.session_state["page"] == "login":
-            show_login_page()
-        elif st.session_state["page"] == "register":
-            show_register_page()
+    # Navegação de páginas de autenticação
+    page = st.session_state["page"]
+
+    if page == "login":
+        show_login_page()
+        if st.button("Não tens conta? Criar nova conta", key="btn_to_register"):
+            st.session_state.page = "register"
+            st.rerun()
         return
 
+    if page == "register":
+        show_register_page()
+        if st.button("Já tens conta? Fazer login", key="btn_to_login"):
+            st.session_state.page = "login"
+            st.rerun()
+        return
+
+    # Paginas protegidas
+    if "user_id" not in st.session_state or st.session_state["user_id"] is None:
+        st.session_state["page"] = "login"
+        st.rerun()
+        return
+    
+    # Se está aqui, usuário autenticado
     st.sidebar.title(f"👤 {st.session_state['username']}")
     is_admin = st.session_state.get("is_admin", False)
 
@@ -31,6 +48,7 @@ def main():
         show_settings_page()
     elif menu == "Sair":
         st.session_state.clear()
+        st.session_state["page"] = "login"
         st.rerun()
 
 if __name__ == "__main__":

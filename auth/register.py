@@ -20,4 +20,3 @@ def show_register_page():
             st.session_state["username"] = username
             st.session_state["is_admin"] = False
             st.rerun()
-    st.markdown("Já tens conta? [Fazer login](#)")

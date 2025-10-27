@@ -17,4 +17,3 @@ def show_login_page():
             st.rerun()
         else:
             st.error("Username ou password incorretos")
-    st.markdown("Não tens conta? [Criar nova conta](#)")

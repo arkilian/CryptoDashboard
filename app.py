@@ -34,7 +34,7 @@ def main():
         return
     
     # Se está aqui, usuário autenticado
-    st.write(st.session_state)
+    #st.write(st.session_state)
     st.sidebar.title(f"👤 {st.session_state['username']}")
     is_admin = st.session_state.get("is_admin", False)
 

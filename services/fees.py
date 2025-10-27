@@ -24,8 +24,8 @@ def get_current_fee_settings():
 
 def apply_fees(user_id, snapshot_date, total_value, valor_user):
     """
-    Aplica taxas de manuten��o e performance para um utilizador,
-    com base na configura��o ativa em t_fee_settings.
+    Aplica taxas de manutenção e performance para um utilizador,
+    com base na configuração ativa em t_fee_settings.
     """
     fees = get_current_fee_settings()
     maintenance_rate = fees["maintenance_rate"]
@@ -65,15 +65,15 @@ def apply_fees(user_id, snapshot_date, total_value, valor_user):
         cur.execute("""
             INSERT INTO t_user_fees (user_id, fee_type, amount, fee_date)
             VALUES (%s, 'performance', %s, %s)
-        """, (user_id, performance_fee, snapshot_date))
-                valor_user -= performance_fee
+        """, (user_id, performance_fee, snapshot_date)) 
+        valor_user -= performance_fee
 
-                cur.execute("""
-                        INSERT INTO t_user_high_water (user_id, high_water_value)
-                        VALUES (%s, %s)
-                        ON CONFLICT (user_id) DO UPDATE
-                            SET high_water_value = EXCLUDED.high_water_value
-                """, (user_id, valor_user))
+        cur.execute("""
+                INSERT INTO t_user_high_water (user_id, high_water_value)
+                VALUES (%s, %s)
+                ON CONFLICT (user_id) DO UPDATE
+                    SET high_water_value = EXCLUDED.high_water_value
+        """, (user_id, valor_user))
 
     conn.commit()
     cur.close()
@@ -83,7 +83,7 @@ def apply_fees(user_id, snapshot_date, total_value, valor_user):
 
 
 def update_fee_settings(maintenance_rate, maintenance_min, performance_rate):
-    """Cria um novo registo de configura��o de taxas (mant�m hist�rico)."""
+    """Cria um novo registo de configuração de taxas (mantém histórico)."""
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("""
@@ -95,7 +95,7 @@ def update_fee_settings(maintenance_rate, maintenance_min, performance_rate):
     conn.close()
 
 def get_fee_history():
-    """Retorna todas as configura��es de taxas ordenadas por data."""
+    """Retorna todas as configurações de taxas ordenadas por data."""
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("""

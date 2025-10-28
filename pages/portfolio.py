@@ -22,11 +22,11 @@ def show_portfolio_page():
         if "portfolio_data" not in st.session_state:
             st.session_state["portfolio_data"] = default_df
 
-        # Data editor - passamos o valor explicitamente como `value` e
-        # evitamos usar a mesma chave no session_state como `key` do widget
-        # para não violar as regras de atribuição do Streamlit.
+        # Data editor - passamos o dataframe como `data` (param name changed
+        # em versões recentes do Streamlit). Não usar `key` para o widget
+        # porque guardamos o resultado manualmente em session_state.
         df_assets = st.data_editor(
-            value=st.session_state["portfolio_data"],
+            data=st.session_state["portfolio_data"],
             num_rows="dynamic",
         )
 
@@ -56,7 +56,49 @@ def show_portfolio_page():
                 st.experimental_rerun()
 
         # Calcula valores após edição/preenchimento
-        df_assets["valor_total"] = df_assets["quantity"].astype(float) * df_assets["price"].astype(float)
+        # Defensive handling: se o utilizador removeu/renomeou colunas no editor,
+        # procuramos por nomes comuns (quantity, qty, quantidade) e (price, preco)
+        # e criamos colunas com 0.0 quando não existirem.
+        if not isinstance(df_assets, pd.DataFrame):
+            try:
+                df_assets = pd.DataFrame(df_assets)
+            except Exception:
+                df_assets = pd.DataFrame(columns=["asset_symbol", "quantity", "price"]).astype({"quantity": float, "price": float})
+
+        # Map lowercased column name -> actual column name
+        cols_map = {c.lower().strip(): c for c in df_assets.columns}
+
+        # Find quantity column
+        qty_candidates = ["quantity", "qty", "quantidade", "quant"]
+        qty_col = None
+        for cand in qty_candidates:
+            if cand in cols_map:
+                qty_col = cols_map[cand]
+                break
+        if qty_col is None:
+            df_assets["quantity"] = 0.0
+            qty_col = "quantity"
+
+        # Find price column
+        price_candidates = ["price", "preco", "preço", "valor", "valor_unitario"]
+        price_col = None
+        for cand in price_candidates:
+            if cand in cols_map:
+                price_col = cols_map[cand]
+                break
+        if price_col is None:
+            df_assets["price"] = 0.0
+            price_col = "price"
+
+        # Now compute valor_total safely
+        try:
+            df_assets["valor_total"] = (
+                df_assets[qty_col].fillna(0).astype(float)
+                * df_assets[price_col].fillna(0).astype(float)
+            )
+        except Exception:
+            # Fallback: set zeros if any conversion fails
+            df_assets["valor_total"] = 0.0
         st.dataframe(df_assets)
 
         total = df_assets['valor_total'].sum()

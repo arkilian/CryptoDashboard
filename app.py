@@ -3,6 +3,9 @@ from auth.login import show_login_page
 from auth.register import show_register_page
 from pages.portfolio import show_portfolio_page
 from pages.settings import show_settings_page
+from pages.prices import show as show_prices_page
+from pages.snapshots import show as show_snapshots_page
+from pages.documents import show as show_documents_page
 
 def main():
     st.set_page_config(page_title="Crypto Dashboard", page_icon="🔒", layout="wide")
@@ -38,16 +41,33 @@ def main():
     st.sidebar.title(f"👤 {st.session_state['username']}")
     is_admin = st.session_state.get("is_admin", False)
 
+    # Menu comum para todos os usuários
+    menu_options = [
+        "📈 Portfólio",
+        "💰 Cotações",
+        "📸 Snapshots",
+        "📄 Documentos",
+    ]
+    
+    # Opções adicionais para admins
     if is_admin:
-        menu = st.sidebar.radio("Navegação", ["Portfólio", "Configurações de Taxas", "Sair"])
-    else:
-        menu = st.sidebar.radio("Navegação", ["Portfólio", "Histórico de Taxas", "Sair"])
+        menu_options.insert(-1, "⚙️ Configurações")
+    
+    menu_options.append("🚪 Sair")
+    
+    menu = st.sidebar.radio("Navegação", menu_options)
 
-    if menu == "Portfólio":
+    if menu == "📈 Portfólio":
         show_portfolio_page()
-    elif menu in ["Configurações de Taxas", "Histórico de Taxas"]:
+    elif menu == "💰 Cotações":
+        show_prices_page()
+    elif menu == "📸 Snapshots":
+        show_snapshots_page()
+    elif menu == "📄 Documentos":
+        show_documents_page()
+    elif menu == "⚙️ Configurações" and is_admin:
         show_settings_page()
-    elif menu == "Sair":
+    elif menu == "🚪 Sair":
         st.session_state.clear()
         st.session_state["page"] = "login"
         st.rerun()

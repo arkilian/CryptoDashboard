@@ -13,3 +13,12 @@ def get_connection():
         host=os.getenv("DB_HOST"),
         port=os.getenv("DB_PORT")
     )
+
+
+def get_db_connection():
+    """Backward-compatible alias used across the codebase.
+
+    Some modules import `get_db_connection` while older code used `get_connection`.
+    This helper ensures both names work.
+    """
+    return get_connection()

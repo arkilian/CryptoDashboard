@@ -1,6 +1,11 @@
-streamlit
-pandas
-psycopg2-binary
-python-dotenv
-bcrypt
-requests
+streamlit==1.28.0
+pandas==2.0.3
+numpy==1.22.4
+psycopg2-binary==2.9.9
+python-dotenv==1.0.0
+bcrypt==4.0.1
+requests==2.31.0
+plotly==5.17.0
+pycoingecko==3.1.0
+streamlit-aggrid==0.3.4
+python-jose==3.3.0

@@ -131,3 +131,70 @@ if __name__ == "__main__":
     # Quick manual test (não executa em import)
     test_symbols = ["BTC", "ETH", "ADA", "NONEXISTENT"]
     print(get_price_by_symbol(test_symbols, "eur"))
+
+
+class CoinGeckoService:
+    """Pequeno wrapper orientado a objeto para uso na app.
+
+    Methods:
+    - get_prices(symbols, vs_currencies) -> dict
+    - get_market_chart(symbol_or_id, period) -> dict (raw response from /coins/{id}/market_chart)
+    """
+
+    def __init__(self):
+        # simple instance cache
+        self._price_cache = {}
+
+    def get_prices(self, symbols: List[str], vs_currencies: List[str]):
+        """Obter preços para uma lista de símbolos em várias moedas.
+
+        vs_currencies: list like ['eur','usd']
+        Returns dict: {symbol: {vs: price, ...}, ...}
+        """
+        if not symbols:
+            return {}
+
+        # reutiliza a função get_price_by_symbol para cada vs_currency
+        result = {s: {} for s in symbols}
+        for vs in vs_currencies:
+            prices = get_price_by_symbol(symbols, vs_currency=vs)
+            for s, p in prices.items():
+                result[s][vs] = p
+
+        return result
+
+    def get_market_chart(self, symbol_or_id: str, period: str = "30d"):
+        """Retorna os dados de market_chart para a moeda indicada.
+
+        symbol_or_id: pode ser símbolo (BTC) ou id (bitcoin). Tentamos mapear se for símbolo.
+        period: '24h', '7d', '30d', '90d', '1y', 'max'
+        """
+        # Mapear período para parâmetro days
+        mapping = {
+            "24h": "1",
+            "7d": "7",
+            "30d": "30",
+            "90d": "90",
+            "1y": "365",
+            "max": "max",
+        }
+
+        days = mapping.get(period, "30")
+
+        # Tentar descobrir se foi passado id ou símbolo
+        coin_id = symbol_or_id
+        if len(symbol_or_id) <= 5 and symbol_or_id.isalpha():
+            # provável símbolo curto (BTC, ADA)
+            mapped = _symbol_to_id(symbol_or_id)
+            if mapped:
+                coin_id = mapped
+
+        url = f"{BASE_URL}/coins/{coin_id}/market_chart"
+        params = {"vs_currency": "usd", "days": days}
+        try:
+            resp = requests.get(url, params=params, timeout=15)
+            resp.raise_for_status()
+            return resp.json()
+        except requests.RequestException as e:
+            logger.error("Erro ao obter market_chart: %s", e)
+            return {}

@@ -48,14 +48,23 @@ def _get_coin_list() -> List[Dict]:
         return _coin_list_cache
 
     url = f"{BASE_URL}/coins/list"
-    try:
-        resp = requests.get(url, timeout=10)
-        resp.raise_for_status()
-        _coin_list_cache = resp.json()
-        return _coin_list_cache
-    except requests.RequestException as e:
-        logger.error("Erro ao buscar coin list do CoinGecko: %s", e)
-        return []
+    # Retry on transient errors (including 429) with short backoff
+    retries = 3
+    backoff = 1.0
+    for attempt in range(retries):
+        try:
+            resp = requests.get(url, timeout=10)
+            resp.raise_for_status()
+            _coin_list_cache = resp.json()
+            return _coin_list_cache
+        except requests.RequestException as e:
+            logger.warning("Tentativa %d: erro ao buscar coin list do CoinGecko: %s", attempt + 1, e)
+            if attempt < retries - 1:
+                time.sleep(backoff)
+                backoff *= 2
+            else:
+                logger.error("Erro ao buscar coin list do CoinGecko após %d tentativas: %s", retries, e)
+                return []
 
 
 def _symbol_to_id(symbol: str) -> Optional[str]:
@@ -108,23 +117,32 @@ def get_price_by_symbol(symbols: List[str], vs_currency: str = "eur") -> Dict[st
     }
     url = f"{BASE_URL}/simple/price"
 
-    try:
-        resp = requests.get(url, params=params, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
+    # Retry on transient errors (e.g., 429) with exponential backoff
+    retries = 3
+    backoff = 1.0
+    for attempt in range(retries):
+        try:
+            resp = requests.get(url, params=params, timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
 
-        # Preenche o resultado por símbolo original
-        for sym, coin_id in symbol_id_map.items():
-            if coin_id and coin_id in data and vs_currency in data[coin_id]:
-                prices[sym] = float(data[coin_id][vs_currency])
-            else:
-                prices[sym] = None
+            # Preenche o resultado por símbolo original
+            for sym, coin_id in symbol_id_map.items():
+                if coin_id and coin_id in data and vs_currency in data[coin_id]:
+                    prices[sym] = float(data[coin_id][vs_currency])
+                else:
+                    prices[sym] = None
 
-        return prices
-    except requests.RequestException as e:
-        logger.error("Erro ao obter preços do CoinGecko: %s", e)
-        # Em caso de erro, devolve None para todos
-        return {s: None for s in symbols}
+            return prices
+        except requests.RequestException as e:
+            # On 429 or similar, wait and retry a few times
+            logger.warning("Tentativa %d: Erro ao obter preços do CoinGecko: %s", attempt + 1, e)
+            if attempt < retries - 1:
+                time.sleep(backoff)
+                backoff *= 2
+                continue
+            logger.error("Erro ao obter preços do CoinGecko após %d tentativas: %s", retries, e)
+            return {s: None for s in symbols}
 
 
 if __name__ == "__main__":
@@ -143,7 +161,11 @@ class CoinGeckoService:
 
     def __init__(self):
         # simple instance cache
+        # cache: key -> (ts, data)
         self._price_cache = {}
+
+        # TTL in seconds for price cache
+        self._price_cache_ttl = 30
 
     def get_prices(self, symbols: List[str], vs_currencies: List[str]):
         """Obter preços para uma lista de símbolos em várias moedas.
@@ -154,6 +176,13 @@ class CoinGeckoService:
         if not symbols:
             return {}
 
+        # Build cache key from symbols and vs_currencies
+        key = ("|".join(sorted([s.upper() for s in symbols])), "|".join(sorted([v.lower() for v in vs_currencies])))
+        now = time.time()
+        cached = self._price_cache.get(key)
+        if cached and now - cached[0] < self._price_cache_ttl:
+            return cached[1]
+
         # reutiliza a função get_price_by_symbol para cada vs_currency
         result = {s: {} for s in symbols}
         for vs in vs_currencies:
@@ -161,6 +190,8 @@ class CoinGeckoService:
             for s, p in prices.items():
                 result[s][vs] = p
 
+        # store in cache
+        self._price_cache[key] = (now, result)
         return result
 
     def get_market_chart(self, symbol_or_id: str, period: str = "30d"):
@@ -191,10 +222,18 @@ class CoinGeckoService:
 
         url = f"{BASE_URL}/coins/{coin_id}/market_chart"
         params = {"vs_currency": "usd", "days": days}
-        try:
-            resp = requests.get(url, params=params, timeout=15)
-            resp.raise_for_status()
-            return resp.json()
-        except requests.RequestException as e:
-            logger.error("Erro ao obter market_chart: %s", e)
-            return {}
+        retries = 3
+        backoff = 1.0
+        for attempt in range(retries):
+            try:
+                resp = requests.get(url, params=params, timeout=15)
+                resp.raise_for_status()
+                return resp.json()
+            except requests.RequestException as e:
+                logger.warning("Tentativa %d: Erro ao obter market_chart: %s", attempt + 1, e)
+                if attempt < retries - 1:
+                    time.sleep(backoff)
+                    backoff *= 2
+                    continue
+                logger.error("Erro ao obter market_chart após %d tentativas: %s", retries, e)
+                return {}

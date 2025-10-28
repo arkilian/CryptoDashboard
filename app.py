@@ -10,8 +10,20 @@ from pages.documents import show as show_documents_page
 def main():
     st.set_page_config(page_title="Crypto Dashboard", page_icon="🔒", layout="wide")
 
+    # Initialize commonly used session_state keys to avoid AttributeError in pages
     if "page" not in st.session_state:
         st.session_state["page"] = "login"
+    # Ensure user-related keys exist (may be None)
+    if "user" not in st.session_state:
+        st.session_state["user"] = None
+    if "user_id" not in st.session_state:
+        st.session_state["user_id"] = None
+    if "username" not in st.session_state:
+        st.session_state["username"] = None
+    if "is_admin" not in st.session_state:
+        st.session_state["is_admin"] = False
+    if "portfolio_data" not in st.session_state:
+        st.session_state["portfolio_data"] = None
 
     # Navegação de páginas de autenticação
     page = st.session_state["page"]

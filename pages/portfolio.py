@@ -6,7 +6,7 @@ from services.coingecko import get_price_by_symbol
 
 def show_portfolio_page():
     # Usa a flag is_admin em vez de comparar user_id == 1
-    if st.session_state.get("is_admin", True):  # admin
+    if st.session_state.get("is_admin", False):  # admin
         st.title("📸 Snapshot Manual (Modo Portfólio)")
 
         snapshot_date = st.date_input("Data do snapshot", date.today())
@@ -22,11 +22,12 @@ def show_portfolio_page():
         if "portfolio_data" not in st.session_state:
             st.session_state["portfolio_data"] = default_df
 
-        # Data editor (edita diretamente em st.session_state['portfolio_data'])
+        # Data editor - passamos o valor explicitamente como `value` e
+        # evitamos usar a mesma chave no session_state como `key` do widget
+        # para não violar as regras de atribuição do Streamlit.
         df_assets = st.data_editor(
-            st.session_state["portfolio_data"],
+            value=st.session_state["portfolio_data"],
             num_rows="dynamic",
-            key="portfolio_data"
         )
 
         # Botão para preencher preços via CoinGecko
@@ -50,7 +51,7 @@ def show_portfolio_page():
                     if price is not None and (not row.get("price") or float(row.get("price") or 0) == 0):
                         df_assets.at[i, "price"] = price
 
-                # Guarda o dataframe atualizado na sessão e rerun para refletir no editor
+                # Guarda o dataframe atualizado na sessão e rerun para refletir na UI
                 st.session_state["portfolio_data"] = df_assets
                 st.experimental_rerun()
 

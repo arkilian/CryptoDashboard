@@ -55,7 +55,7 @@ def show():
     
     if pdf_html:
         st.markdown(pdf_html, unsafe_allow_html=True)
-        
+
         # Adicionar botão de download
         download_link = pdf_viewer.get_pdf_download_link(
             doc["file"],
@@ -65,13 +65,28 @@ def show():
             st.markdown(download_link, unsafe_allow_html=True)
     else:
         st.error(f"❌ Erro ao carregar o documento. Por favor, contacte o administrador.")
-        
-        # Se for admin, mostrar caminho do arquivo
-        if st.session_state.user.get('is_admin'):
+
+        # Se for admin, mostrar caminho do arquivo (acesso defensivo)
+        user = st.session_state.get('user')
+        is_admin = False
+        if user and isinstance(user, dict):
+            is_admin = user.get('is_admin', False)
+        else:
+            is_admin = st.session_state.get('is_admin', False)
+
+        if is_admin:
             st.warning(f"Caminho do arquivo: {Path(doc['file']).absolute()}")
 
     # Adicionar seção de metadata para admins
-    if st.session_state.user.get('is_admin'):
+    # Admin-only metadata (access defensively)
+    user = st.session_state.get('user')
+    is_admin = False
+    if user and isinstance(user, dict):
+        is_admin = user.get('is_admin', False)
+    else:
+        is_admin = st.session_state.get('is_admin', False)
+
+    if is_admin:
         with st.expander("🔧 Informações do Documento (Admin)"):
             st.json({
                 "path": str(Path(doc["file"]).absolute()),

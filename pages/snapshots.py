@@ -8,8 +8,15 @@ from auth.session_manager import require_auth
 def show():
     st.title("📸 Snapshot Manual")
     
-    # Get current user from session
-    user = st.session_state.user
+    # Get current user from session (be defensive if not fully initialised)
+    user = st.session_state.get('user')
+    if not user:
+        # Fallback to minimal user structure if only individual fields exist
+        user = {
+            'user_id': st.session_state.get('user_id'),
+            'user_name': st.session_state.get('username'),
+            'is_admin': st.session_state.get('is_admin', False),
+        }
     snapshot_service = SnapshotService()
 
     # Toggle between portfolio mode (future) and manual mode

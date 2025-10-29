@@ -2,6 +2,7 @@
 
 Resumo das páginas existentes em `pages/` e o que fazem.
 
+- `users.py` — **Gestão de Utilizadores (Admin only)**. Permite ver lista de utilizadores, modificar dados (username, email, perfil, morada), adicionar novos utilizadores e gerir dados financeiros (depósitos, levantamentos e histórico de movimentos). Quando o admin seleciona um administrador, vê um resumo agregado do fundo comunitário com totais de todos os utilizadores.
 - `portfolio.py` — Página principal do portfólio. Permite inserir activos, obter preços via CoinGecko, criar snapshots e persistir através de `database/portfolio.py`.
 - `prices.py` — Visualizações de preços e charts usando dados de `services/coingecko.py`.
 - `snapshots.py` — Página para criar snapshots manuais e visualizar histórico por utilizador (usa `services/snapshot.py`).
@@ -16,4 +17,5 @@ Dicas de UI
 Segurança
 
 - Páginas protegidas verificam `st.session_state['user_id']` para garantir autenticação.
+- Páginas de administração verificam `st.session_state['is_admin']` para restringir acesso.
 

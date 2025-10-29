@@ -16,9 +16,14 @@ Tabelas definidas no ficheiro `database/tables.sql`:
 
 Migrações adicionais
 
-Há uma migração em `database/migrations/003_add_manual_snapshots.sql` que cria:
+Há migrações em `database/migrations/` que criam tabelas adicionais:
 
-- `t_user_manual_snapshots` — snapshots manuais com colunas binance_value, ledger_value, defi_value, other_value, total_value
+- `003_add_manual_snapshots.sql` — cria `t_user_manual_snapshots` (snapshots manuais com colunas binance_value, ledger_value, defi_value, other_value, total_value)
+- `004_add_user_profile_and_movements.sql` — cria:
+  - `t_gender` — lookup de géneros
+  - `t_address` — endereços
+  - `t_user_profile` — perfis de utilizador (first_name, last_name, birth_date, gender_id, address_id)
+  - `t_user_capital_movements` — movimentos de capital (depósitos, levantamentos). Os admins não têm movimentos próprios; a visualização agregada mostra a soma de todos os utilizadores não-admin.
 
 O runner de migrações (`database/run_migrations.py`) cria uma tabela de controlo `t_migrations` e aplica os scripts SQL encontrados em `database/migrations/`.
 

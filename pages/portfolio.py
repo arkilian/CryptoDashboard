@@ -41,19 +41,24 @@ def show_portfolio_page():
                         st.error(f"Erro ao obter preços: {e}")
                         prices = {s: None for s in symbols}
 
-                # Atualiza preços onde estiverem vazios ou zero
-                for i, row in df_assets.iterrows():
-                    sym = str(row.get("asset_symbol", "")).strip()
-                    if not sym:
-                        continue
-                    price = prices.get(sym)
-                    # Só substitui se preço obtido e valor atual for falsy
-                    if price is not None and (not row.get("price") or float(row.get("price") or 0) == 0):
-                        df_assets.at[i, "price"] = price
+                # Atualiza preços onde estiverem vazios ou zero - usando vectorized operations
+                df_assets['asset_symbol_clean'] = df_assets['asset_symbol'].astype(str).str.strip()
+                
+                # Create a price map for the symbols
+                for sym, price in prices.items():
+                    if price is not None:
+                        # Update only where price is 0 or null
+                        mask = (df_assets['asset_symbol_clean'] == sym) & (
+                            df_assets['price'].isna() | (df_assets['price'] == 0)
+                        )
+                        df_assets.loc[mask, 'price'] = price
+                
+                # Clean up temporary column
+                df_assets.drop('asset_symbol_clean', axis=1, inplace=True)
 
                 # Guarda o dataframe atualizado na sessão e rerun para refletir na UI
                 st.session_state["portfolio_data"] = df_assets
-                st.experimental_rerun()
+                st.rerun()
 
         # Calcula valores após edição/preenchimento
         # Defensive handling: se o utilizador removeu/renomeou colunas no editor,

@@ -261,12 +261,12 @@ class TestBulkOperations(unittest.TestCase):
         
         insert_snapshot_and_fees(1, date.today(), df_assets)
         
-        # Should use executemany for bulk insert
-        self.assertTrue(any(
-            call[0][0] == mock_cursor.executemany 
+        # Check that executemany was called for bulk insert
+        executemany_called = any(
+            'executemany' in str(call)
             for call in mock_cursor.method_calls
-            if hasattr(call[0][0], '__name__')
-        ))
+        )
+        self.assertTrue(executemany_called, "executemany should be used for bulk inserts")
     
     @patch('database.portfolio.get_db_cursor')
     @patch('database.portfolio.apply_fees')
@@ -295,12 +295,20 @@ class TestBulkOperations(unittest.TestCase):
         
         insert_snapshot_and_fees(1, date.today(), df_assets)
         
-        # Check that the optimized query is used (with COALESCE and subquery)
-        execute_calls = [call for call in mock_cursor.method_calls if 'execute' in str(call)]
-        user_query_calls = [call for call in execute_calls if 'COALESCE' in str(call[1][0])]
+        # Check that execute was called with SQL containing COALESCE (optimized query)
+        execute_calls = [
+            call for call in mock_cursor.method_calls 
+            if call[0] == 'execute' and len(call[1]) > 0
+        ]
         
-        # Should have one optimized query for users
-        self.assertGreater(len(user_query_calls), 0, "Optimized user query should be used")
+        # Look for the optimized user query with COALESCE
+        optimized_query_found = any(
+            'COALESCE' in str(call[1][0])
+            for call in execute_calls
+        )
+        
+        self.assertTrue(optimized_query_found, 
+                       "Optimized user query with COALESCE should be used")
 
 
 if __name__ == '__main__':

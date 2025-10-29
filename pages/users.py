@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import date
 import datetime
-from database.connection import get_connection
+from database.connection import get_connection, return_connection, get_engine
 from auth.session_manager import require_auth
 
 @require_auth
@@ -43,19 +43,21 @@ def show():
         if cursor:
             cursor.close()
         if conn:
-            conn.close()
+            # Devolve a ligação ao pool em vez de a fechar
+            return_connection(conn)
 
 
 def _show_users_list(conn):
     """Exibir lista de utilizadores"""
     st.subheader("📋 Lista de Utilizadores")
     
+    engine = get_engine()
     df = pd.read_sql("""
         SELECT tu.username, tup.email, tup.first_name, tup.last_name
         FROM t_users tu 
         LEFT JOIN t_user_profile tup ON tup.user_id = tu.user_id
         ORDER BY tu.user_id
-    """, conn)
+    """, engine)
     
     st.dataframe(df, use_container_width=True)
 
@@ -65,12 +67,13 @@ def _modify_user(conn, cursor):
     st.subheader("✏️ Modificar Utilizador")
     
     # Obter lista de utilizadores
+    engine = get_engine()
     df_users = pd.read_sql("""
         SELECT tu.user_id, tu.username, tup.email
         FROM t_users tu
         LEFT JOIN t_user_profile tup ON tup.user_id = tu.user_id
         ORDER BY tu.user_id
-    """, conn)
+    """, engine)
     opcoes = [f"{row['username']} ({row['email'] or 'sem email'})" for _, row in df_users.iterrows()]
 
     # Selectbox com pesquisa
@@ -117,7 +120,8 @@ def _modify_user(conn, cursor):
             value=birth_date or datetime.date(2000, 1, 1)
         )
 
-        df_gender = pd.read_sql("SELECT gender_id, gender_name FROM t_gender ORDER BY gender_name", conn)
+        engine = get_engine()
+        df_gender = pd.read_sql("SELECT gender_id, gender_name FROM t_gender ORDER BY gender_name", engine)
         genero_opcoes = df_gender["gender_name"].tolist()
         genero_selecionado = st.selectbox(
             "Género",
@@ -133,9 +137,10 @@ def _modify_user(conn, cursor):
 
         if st.button("💾 Salvar"):
             try:
+                # Atualiza apenas o username em t_users (email pertence ao perfil)
                 cursor.execute(
-                    "UPDATE t_users SET username = %s, email = %s WHERE user_id = %s",
-                    (novo_username, novo_email, user_id)
+                    "UPDATE t_users SET username = %s WHERE user_id = %s",
+                    (novo_username, user_id)
                 )
 
                 # Novo endereço
@@ -180,7 +185,8 @@ def _add_user(conn, cursor):
     last_name = st.text_input("Último Nome")
     birth_date = st.date_input("Data de Nascimento")
 
-    df_gender = pd.read_sql("SELECT gender_id, gender_name FROM t_gender ORDER BY gender_name", conn)
+    engine = get_engine()
+    df_gender = pd.read_sql("SELECT gender_id, gender_name FROM t_gender ORDER BY gender_name", engine)
     genero_opcoes = df_gender["gender_name"].tolist()
     genero_selecionado = st.selectbox("Género", genero_opcoes)
 
@@ -244,12 +250,13 @@ def _financial_data(conn, cursor):
     st.subheader("💰 Dados Financeiros")
 
     # Obter lista de utilizadores
+    engine = get_engine()
     df_users = pd.read_sql("""
         SELECT tu.user_id, tu.username, tup.email
         FROM t_users tu
         LEFT JOIN t_user_profile tup ON tup.user_id = tu.user_id
         ORDER BY tu.user_id
-    """, conn)
+    """, engine)
     opcoes = [f"{row['username']} ({row['email'] or 'sem email'})" for _, row in df_users.iterrows()]
 
     # Selectbox com pesquisa
@@ -269,6 +276,7 @@ def _financial_data(conn, cursor):
         st.subheader("💰 Resumo do Fundo Comunitário")
         
         # Calcular totais agregados de todos os utilizadores (exceto admins)
+        engine = get_engine()
         df_totals = pd.read_sql("""
             SELECT 
                 COUNT(DISTINCT user_id) as total_users,
@@ -277,7 +285,7 @@ def _financial_data(conn, cursor):
                 COALESCE(SUM(credit) - SUM(debit), 0) as balance
             FROM t_user_capital_movements
             WHERE user_id NOT IN (1, 2)
-        """, conn)
+        """, engine)
         
         col1, col2, col3, col4 = st.columns(4)
         with col1:
@@ -291,6 +299,7 @@ def _financial_data(conn, cursor):
         
         # --- Histórico de movimentos agregado ---
         st.subheader("📜 Histórico de Todos os Movimentos")
+        engine = get_engine()
         df_mov = pd.read_sql("""
             SELECT tucm.movement_date, tucm.credit, tucm.debit, tucm.description, tu.username
             FROM t_user_capital_movements tucm
@@ -298,7 +307,7 @@ def _financial_data(conn, cursor):
             WHERE tucm.user_id NOT IN (1, 2)
             ORDER BY tucm.movement_date DESC
             LIMIT 100
-        """, conn)
+        """, engine)
 
         st.dataframe(df_mov, use_container_width=True)
     else:
@@ -348,12 +357,13 @@ def _financial_data(conn, cursor):
 
         # --- Histórico de movimentos ---
         st.subheader("📜 Histórico de Movimentos")
+        engine = get_engine()
         df_mov = pd.read_sql("""
             SELECT movement_date, credit, debit, description
             FROM t_user_capital_movements
             WHERE user_id = %s
             ORDER BY movement_date DESC
-        """, conn, params=(user_id,))
+        """, engine, params=(user_id,))
 
         st.dataframe(df_mov, use_container_width=True)
 

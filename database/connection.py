@@ -3,12 +3,15 @@ import psycopg2
 from psycopg2 import pool
 from dotenv import load_dotenv
 from contextlib import contextmanager
+from sqlalchemy import create_engine
+from sqlalchemy.engine import Engine
 
 # Carrega variáveis do .env
 load_dotenv()
 
 # Connection pool for better performance
 _connection_pool = None
+_engine: Engine | None = None
 
 
 def _get_pool():
@@ -68,3 +71,22 @@ def get_db_connection():
     This helper ensures both names work.
     """
     return get_connection()
+
+
+def get_engine() -> Engine:
+    """Return a singleton SQLAlchemy Engine for Pandas read_sql and ORM use.
+
+    Uses credentials from environment variables: DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD.
+    """
+    global _engine
+    if _engine is None:
+        user = os.getenv("DB_USER")
+        password = os.getenv("DB_PASSWORD")
+        host = os.getenv("DB_HOST", "localhost")
+        port = os.getenv("DB_PORT", "5432")
+        db = os.getenv("DB_NAME")
+
+        # postgresql+psycopg2 URL
+        url = f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{db}"
+        _engine = create_engine(url, pool_pre_ping=True)
+    return _engine

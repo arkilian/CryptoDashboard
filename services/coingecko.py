@@ -8,7 +8,7 @@ Implementação:
 - Tenta mapear símbolo para `id` do CoinGecko usando um mapeamento interno para os tokens mais comuns.
 - Se não encontrar, consulta `/coins/list` e faz correspondência por `symbol` (case-insensitive).
 - Usa `/simple/price` para obter preços em massa.
-- Tem caching in-memory simples para o mapeamento símbolo->id e respostas de `/coins/list`.
+- Tem caching in-memory com TTL para reduzir chamadas à API.
 """
 from typing import List, Dict, Optional
 import requests
@@ -36,16 +36,22 @@ COMMON_SYMBOL_MAP = {
     "BCH": "bitcoin-cash",
 }
 
-# Simple in-memory caches
-_coin_list_cache: Optional[List[Dict]] = None
+# Cache with TTL
+_coin_list_cache: Optional[tuple] = None  # (timestamp, data)
+_coin_list_cache_ttl = 3600  # 1 hour
 _symbol_to_id_cache: Dict[str, str] = {k.upper(): v for k, v in COMMON_SYMBOL_MAP.items()}
 
 
 def _get_coin_list() -> List[Dict]:
-    """Retorna a lista de moedas do CoinGecko e faz cache in-memory por enquanto."""
+    """Retorna a lista de moedas do CoinGecko com cache de 1 hora."""
     global _coin_list_cache
+    now = time.time()
+    
+    # Check cache validity
     if _coin_list_cache is not None:
-        return _coin_list_cache
+        cache_time, cached_data = _coin_list_cache
+        if now - cache_time < _coin_list_cache_ttl:
+            return cached_data
 
     url = f"{BASE_URL}/coins/list"
     # Retry on transient errors (including 429) with short backoff
@@ -55,8 +61,9 @@ def _get_coin_list() -> List[Dict]:
         try:
             resp = requests.get(url, timeout=10)
             resp.raise_for_status()
-            _coin_list_cache = resp.json()
-            return _coin_list_cache
+            data = resp.json()
+            _coin_list_cache = (now, data)
+            return data
         except requests.RequestException as e:
             logger.warning("Tentativa %d: erro ao buscar coin list do CoinGecko: %s", attempt + 1, e)
             if attempt < retries - 1:
@@ -64,6 +71,10 @@ def _get_coin_list() -> List[Dict]:
                 backoff *= 2
             else:
                 logger.error("Erro ao buscar coin list do CoinGecko após %d tentativas: %s", retries, e)
+                # Return old cache if available
+                if _coin_list_cache is not None:
+                    logger.info("Usando cache expirado da coin list")
+                    return _coin_list_cache[1]
                 return []
 
 
@@ -160,8 +171,8 @@ class CoinGeckoService:
     """
 
     def __init__(self):
-        # simple instance cache
-        # cache: key -> (ts, data)
+        # simple instance cache with TTL
+        # cache: key -> (timestamp, data)
         self._price_cache = {}
 
         # TTL in seconds for price cache

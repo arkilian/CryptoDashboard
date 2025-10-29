@@ -57,7 +57,7 @@ Suporta multi-utilizador, com taxas configuráveis, snapshots de portfólio e hi
 1. Clone o repositório
 2. Crie um ambiente virtual: `python -m venv venv`
 3. Ative o ambiente:
-   - Windows: `.\venv\Scripts\activate`
+   - Windows: `.\.venv\Scripts\activate`
    - Linux/Mac: `source venv/bin/activate`
 4. Instale as dependências: `pip install -r requirements.txt`
 5. Configure o `.env` baseado no `.env.example`

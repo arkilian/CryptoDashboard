@@ -9,7 +9,12 @@ def show_portfolio_page():
     if st.session_state.get("is_admin", False):  # admin
         st.title("📸 Snapshot Manual (Modo Portfólio)")
 
-        snapshot_date = st.date_input("Data do snapshot", date.today())
+        snapshot_date = st.date_input(
+            "📅 Data do snapshot",
+            value=date.today(),
+            min_value=date(2000, 1, 1),
+            max_value=date(date.today().year + 10, 12, 31)
+        )
 
         st.markdown("### Inserir Ativos do Portfólio")
         # Mantém o dataframe no session_state para permitir atualizações entre reruns

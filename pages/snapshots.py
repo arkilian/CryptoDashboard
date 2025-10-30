@@ -34,7 +34,12 @@ def show():
             
             col1, col2 = st.columns(2)
             with col1:
-                snapshot_date = st.date_input("📅 Data do snapshot", date.today())
+                snapshot_date = st.date_input(
+                    "📅 Data do snapshot",
+                    value=date.today(),
+                    min_value=date(2000, 1, 1),
+                    max_value=date(date.today().year + 10, 12, 31)
+                )
             
             # Use latest values as defaults if available
             binance = st.number_input("💰 Capital na Binance", 
@@ -83,11 +88,19 @@ def show():
         # Date filters
         col1, col2 = st.columns(2)
         with col1:
-            start_date = st.date_input("Data inicial", 
-                                     value=date(date.today().year, 1, 1))
+            start_date = st.date_input(
+                "Data inicial",
+                value=date(date.today().year, 1, 1),
+                min_value=date(2000, 1, 1),
+                max_value=date(date.today().year + 10, 12, 31)
+            )
         with col2:
-            end_date = st.date_input("Data final", 
-                                   value=date.today())
+            end_date = st.date_input(
+                "Data final",
+                value=date.today(),
+                min_value=date(2000, 1, 1),
+                max_value=date(date.today().year + 10, 12, 31)
+            )
 
         # Get snapshots
         snapshots = snapshot_service.get_user_snapshots(

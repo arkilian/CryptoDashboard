@@ -4,6 +4,7 @@ from datetime import date
 import datetime
 from database.connection import get_connection, return_connection, get_engine
 from auth.session_manager import require_auth
+from utils.security import hash_password
 from config import USERS_CACHE_DURATION, GENDER_CACHE_DURATION
 
 
@@ -164,13 +165,29 @@ def _modify_user(conn, cursor):
         st.subheader("📝 Editar dados do utilizador")
         novo_username = st.text_input("Username", value=username_atual)
         novo_email = st.text_input("Email", value=email or "")
+        
+        # Password (opcional - só atualiza se preenchida)
+        st.markdown("**🔐 Password** (deixe em branco para manter a atual)")
+        nova_password = st.text_input("Nova Password", type="password", key="mod_pass")
+        confirma_password = st.text_input("Confirmar Nova Password", type="password", key="mod_pass_conf")
+        
+        # Validação visual em tempo real
+        if nova_password or confirma_password:
+            if len(nova_password) < 6:
+                st.warning("⚠️ A password deve ter pelo menos 6 caracteres")
+            elif nova_password != confirma_password:
+                st.error("❌ As passwords não coincidem")
+            else:
+                st.success("✅ Passwords válidas")
 
         st.subheader("🧍 Editar perfil")
         novo_first_name = st.text_input("Primeiro nome", value=first_name or "")
         novo_last_name = st.text_input("Último nome", value=last_name or "")
         nova_birth_date = st.date_input(
-            "Data de nascimento",
-            value=birth_date or datetime.date(2000, 1, 1)
+            "📅 Data de nascimento",
+            value=birth_date or datetime.date(2000, 1, 1),
+            min_value=datetime.date(1950, 1, 1),
+            max_value=datetime.date(date.today().year + 10, 12, 31)
         )
 
         # Use cached gender list
@@ -189,12 +206,29 @@ def _modify_user(conn, cursor):
         novo_country = st.text_input("País", value=country or "")
 
         if st.button("💾 Salvar"):
+            # Validar password se foi preenchida
+            if nova_password or confirma_password:
+                if nova_password != confirma_password:
+                    st.error("❌ As passwords não coincidem!")
+                    return
+                if len(nova_password) < 6:
+                    st.error("❌ A password deve ter pelo menos 6 caracteres!")
+                    return
+            
             try:
-                # Atualiza apenas o username em t_users (email pertence ao perfil)
-                cursor.execute(
-                    "UPDATE t_users SET username = %s WHERE user_id = %s",
-                    (novo_username, user_id)
-                )
+                # Atualiza username e password (se fornecida)
+                if nova_password:
+                    pwd_hash, salt = hash_password(nova_password)
+                    cursor.execute(
+                        "UPDATE t_users SET username = %s, password_hash = %s, salt = %s WHERE user_id = %s",
+                        (novo_username, pwd_hash, salt, user_id)
+                    )
+                else:
+                    # Atualiza apenas o username em t_users (email pertence ao perfil)
+                    cursor.execute(
+                        "UPDATE t_users SET username = %s WHERE user_id = %s",
+                        (novo_username, user_id)
+                    )
 
                 # Novo endereço
                 cursor.execute("""
@@ -231,12 +265,33 @@ def _add_user(conn, cursor):
 
     novo_username = st.text_input("👤 Username")
     novo_email = st.text_input("📧 Email")
+    
+    # Password obrigatória para novo utilizador
+    st.markdown("---")
+    st.markdown("**🔐 Password** (obrigatória)")
+    nova_password = st.text_input("Password", type="password", key="add_pass")
+    confirma_password = st.text_input("Confirmar Password", type="password", key="add_pass_conf")
+    
+    # Validação visual em tempo real
+    if nova_password or confirma_password:
+        if not nova_password:
+            st.warning("⚠️ A password é obrigatória")
+        elif len(nova_password) < 6:
+            st.warning("⚠️ A password deve ter pelo menos 6 caracteres")
+        elif nova_password != confirma_password:
+            st.error("❌ As passwords não coincidem")
+        else:
+            st.success("✅ Passwords válidas")
 
     st.markdown("---")
     st.subheader("🧍 Dados de Perfil")
     first_name = st.text_input("Primeiro Nome")
     last_name = st.text_input("Último Nome")
-    birth_date = st.date_input("Data de Nascimento")
+    birth_date = st.date_input(
+        "Data de Nascimento",
+        min_value=datetime.date(1950, 1, 1),
+        max_value=datetime.date(date.today().year + 10, 12, 31)
+    )
 
     # Use cached gender list
     df_gender = _get_gender_list_cached()
@@ -250,52 +305,69 @@ def _add_user(conn, cursor):
     country = st.text_input("País")
 
     if st.button("➕ Adicionar"):
-        if novo_username and novo_email:
-            try:
-                # Verifica se já existe utilizador com mesmo username ou email
+        # Validar campos obrigatórios
+        if not novo_username or not novo_email or not nova_password:
+            st.warning("⚠️ Preenche todos os campos obrigatórios (Username, Email e Password).")
+            return
+        
+        # Validar password
+        if nova_password != confirma_password:
+            st.error("❌ As passwords não coincidem!")
+            return
+        
+        if len(nova_password) < 6:
+            st.error("❌ A password deve ter pelo menos 6 caracteres!")
+            return
+        
+        try:
+            # Verifica se já existe utilizador com mesmo username ou email
+            cursor.execute(
+                "SELECT COUNT(*) FROM t_users tu LEFT JOIN t_user_profile tup ON tu.user_id = tup.user_id WHERE tu.username = %s OR tup.email = %s",
+                (novo_username, novo_email)
+            )
+            existe = cursor.fetchone()[0]
+
+            if existe == 0:
+                # Hash da password
+                pwd_hash, salt = hash_password(nova_password)
+                
+                # Inserir utilizador com password
                 cursor.execute(
-                    "SELECT COUNT(*) FROM t_users tu LEFT JOIN t_user_profile tup ON tu.user_id = tup.user_id WHERE tu.username = %s OR tup.email = %s",
-                    (novo_username, novo_email)
+                    "INSERT INTO t_users (username, password_hash, salt) VALUES (%s, %s, %s) RETURNING user_id",
+                    (novo_username, pwd_hash, salt)
                 )
-                existe = cursor.fetchone()[0]
+                user_id = cursor.fetchone()[0]
 
-                if existe == 0:
-                    cursor.execute(
-                        "INSERT INTO t_users (username) VALUES (%s) RETURNING user_id",
-                        (novo_username,)
-                    )
-                    user_id = cursor.fetchone()[0]
+                # Inserir endereço
+                cursor.execute("""
+                    INSERT INTO t_address (street, city, postal_code, country)
+                    VALUES (%s, %s, %s, %s) RETURNING address_id
+                """, (street, city, postal_code, country))
+                address_id = cursor.fetchone()[0]
 
-                    # Inserir endereço
-                    cursor.execute("""
-                        INSERT INTO t_address (street, city, postal_code, country)
-                        VALUES (%s, %s, %s, %s) RETURNING address_id
-                    """, (street, city, postal_code, country))
-                    address_id = cursor.fetchone()[0]
+                # Obter gender_id
+                cursor.execute(
+                    "SELECT gender_id FROM t_gender WHERE gender_name = %s",
+                    (genero_selecionado,)
+                )
+                gender_id = cursor.fetchone()[0]
 
-                    # Obter gender_id
-                    cursor.execute(
-                        "SELECT gender_id FROM t_gender WHERE gender_name = %s",
-                        (genero_selecionado,)
-                    )
-                    gender_id = cursor.fetchone()[0]
+                # Inserir perfil com email
+                cursor.execute("""
+                    INSERT INTO t_user_profile (user_id, email, first_name, last_name, birth_date, gender_id, address_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """, (user_id, novo_email, first_name, last_name, birth_date, gender_id, address_id))
 
-                    # Inserir perfil com email
-                    cursor.execute("""
-                        INSERT INTO t_user_profile (user_id, email, first_name, last_name, birth_date, gender_id, address_id)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s)
-                    """, (user_id, novo_email, first_name, last_name, birth_date, gender_id, address_id))
-
-                    conn.commit()
-                    st.success("✅ Utilizador adicionado com sucesso!")
-                    st.rerun()
-                else:
-                    st.warning("⚠️ Já existe um utilizador com esse username ou email.")
-            except Exception as e:
-                conn.rollback()
-                st.error(f"❌ Erro ao adicionar: {str(e)}")
-        else:
-            st.warning("⚠️ Preenche todos os campos obrigatórios (Username e Email).")
+                conn.commit()
+                st.success("✅ Utilizador adicionado com sucesso!")
+                # Redirecionar para Ver Utilizadores
+                st.session_state["users_submenu"] = "Ver Utilizadores"
+                st.rerun()
+            else:
+                st.warning("⚠️ Já existe um utilizador com esse username ou email.")
+        except Exception as e:
+            conn.rollback()
+            st.error(f"❌ Erro ao adicionar: {str(e)}")
 
 
 def _financial_data(conn, cursor):
@@ -352,7 +424,12 @@ def _financial_data(conn, cursor):
         with col1:
             st.markdown("### 💰 Movimentos de Capital")
         with col2:
-            movement_date = st.date_input("📅 Data do movimento", date.today())
+            movement_date = st.date_input(
+                "📅 Data do movimento",
+                value=date.today(),
+                min_value=datetime.date(2000, 1, 1),
+                max_value=datetime.date(date.today().year + 10, 12, 31)
+            )
 
         # --- Formulário de Depósito ---
         with st.expander("💰 Novo Depósito"):

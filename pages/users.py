@@ -95,11 +95,19 @@ def show():
         conn = get_connection()
         cursor = conn.cursor()
         
-        # Submenu
+        # Inicializar submenu no session_state se não existir
+        if "users_submenu" not in st.session_state:
+            st.session_state["users_submenu"] = "📋 Ver Utilizadores"
+        
+        # Submenu com valor do session_state
         submenu = st.sidebar.radio(
             "Ações de Utilizador",
-            ["📋 Ver Utilizadores", "✏️ Modificar Utilizador", "➕ Adicionar Utilizador", "💰 Dados Financeiros"]
+            ["📋 Ver Utilizadores", "✏️ Modificar Utilizador", "➕ Adicionar Utilizador", "💰 Dados Financeiros"],
+            index=["📋 Ver Utilizadores", "✏️ Modificar Utilizador", "➕ Adicionar Utilizador", "💰 Dados Financeiros"].index(st.session_state["users_submenu"])
         )
+        
+        # Atualizar session_state com a seleção atual
+        st.session_state["users_submenu"] = submenu
 
         if submenu == "📋 Ver Utilizadores":
             _show_users_list(conn)
@@ -361,7 +369,7 @@ def _add_user(conn, cursor):
                 conn.commit()
                 st.success("✅ Utilizador adicionado com sucesso!")
                 # Redirecionar para Ver Utilizadores
-                st.session_state["users_submenu"] = "Ver Utilizadores"
+                st.session_state["users_submenu"] = "📋 Ver Utilizadores"
                 st.rerun()
             else:
                 st.warning("⚠️ Já existe um utilizador com esse username ou email.")

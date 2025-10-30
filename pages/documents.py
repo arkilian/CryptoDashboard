@@ -66,27 +66,12 @@ def show():
     else:
         st.error(f"❌ Erro ao carregar o documento. Por favor, contacte o administrador.")
 
-        # Se for admin, mostrar caminho do arquivo (acesso defensivo)
-        user = st.session_state.get('user')
-        is_admin = False
-        if user and isinstance(user, dict):
-            is_admin = user.get('is_admin', False)
-        else:
-            is_admin = st.session_state.get('is_admin', False)
-
-        if is_admin:
+        # Se for admin, mostrar caminho do arquivo
+        if st.session_state.get("is_admin", False):
             st.warning(f"Caminho do arquivo: {Path(doc['file']).absolute()}")
 
     # Adicionar seção de metadata para admins
-    # Admin-only metadata (access defensively)
-    user = st.session_state.get('user')
-    is_admin = False
-    if user and isinstance(user, dict):
-        is_admin = user.get('is_admin', False)
-    else:
-        is_admin = st.session_state.get('is_admin', False)
-
-    if is_admin:
+    if st.session_state.get("is_admin", False):
         with st.expander("🔧 Informações do Documento (Admin)"):
             st.json({
                 "path": str(Path(doc["file"]).absolute()),

@@ -2,32 +2,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 from services.coingecko import CoinGeckoService
 from auth.session_manager import require_auth
-
-# Lista de moedas que queremos acompanhar
-WATCHED_COINS = [
-    "bitcoin",
-    "sui",
-    "solana",
-    "cardano",
-    "singularitynet",
-    "minswap",
-    "indigo-dao-governance-token",
-    "liqwid-finance",
-    "world-mobile-token",
-    "fluidtokens",
-    "palm-economy",
-    "iagon",
-    "optim-finance",
-    "talos",
-    "genius-yield",
-    "dexhunter",
-    "nuvola-digital",
-    "charli3",
-    "metera",
-    "aada-finance",
-    "djed",
-    "iusd"
-]
+from config import WATCHED_COINS
 
 @require_auth
 def show():

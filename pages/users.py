@@ -4,6 +4,75 @@ from datetime import date
 import datetime
 from database.connection import get_connection, return_connection, get_engine
 from auth.session_manager import require_auth
+from config import USERS_CACHE_DURATION, GENDER_CACHE_DURATION
+
+
+def _get_users_list_cached():
+    """Get users list with caching to avoid redundant database queries."""
+    cache_key = "users_list_cache"
+    cache_time_key = "users_list_cache_time"
+    
+    import time
+    current_time = time.time()
+    
+    # Check if cache is valid
+    if (cache_key in st.session_state and 
+        cache_time_key in st.session_state and
+        current_time - st.session_state[cache_time_key] < USERS_CACHE_DURATION):
+        return st.session_state[cache_key]
+    
+    # Fetch from database
+    engine = get_engine()
+    df_users = pd.read_sql("""
+        SELECT tu.user_id, tu.username, tup.email
+        FROM t_users tu
+        LEFT JOIN t_user_profile tup ON tup.user_id = tu.user_id
+        ORDER BY tu.user_id
+    """, engine)
+    
+    # Cache the result
+    st.session_state[cache_key] = df_users
+    st.session_state[cache_time_key] = current_time
+    
+    return df_users
+
+
+def _get_gender_list_cached():
+    """Get gender list with caching to avoid redundant database queries."""
+    cache_key = "gender_list_cache"
+    
+    if cache_key in st.session_state:
+        return st.session_state[cache_key]
+    
+    # Fetch from database
+    engine = get_engine()
+    df_gender = pd.read_sql("SELECT gender_id, gender_name FROM t_gender ORDER BY gender_name", engine)
+    
+    # Cache the result (gender list is static)
+    st.session_state[cache_key] = df_gender
+    
+    return df_gender
+
+
+def _create_user_selector(df_users, label="🔍 Escolhe um utilizador"):
+    """Create a user selector with efficient lookup.
+    
+    Returns: (selected_option, user_id)
+    """
+    # Create efficient lookup dict
+    user_lookup = {}
+    opcoes = []
+    for _, row in df_users.iterrows():
+        option = f"{row['username']} ({row['email'] or 'sem email'})"
+        opcoes.append(option)
+        user_lookup[option] = row['user_id']
+    
+    # Selectbox
+    selecionado = st.selectbox(label, opcoes)
+    user_id = user_lookup.get(selecionado)
+    
+    return selecionado, user_id
+
 
 @require_auth
 def show():
@@ -66,25 +135,9 @@ def _modify_user(conn, cursor):
     """Modificar dados de utilizador"""
     st.subheader("✏️ Modificar Utilizador")
     
-    # Obter lista de utilizadores
-    engine = get_engine()
-    df_users = pd.read_sql("""
-        SELECT tu.user_id, tu.username, tup.email
-        FROM t_users tu
-        LEFT JOIN t_user_profile tup ON tup.user_id = tu.user_id
-        ORDER BY tu.user_id
-    """, engine)
-    opcoes = [f"{row['username']} ({row['email'] or 'sem email'})" for _, row in df_users.iterrows()]
-
-    # Selectbox com pesquisa
-    selecionado = st.selectbox("🔍 Escolhe um utilizador para editar", opcoes)
-
-    # Encontrar ID do utilizador selecionado
-    user_id = None
-    for idx, row in df_users.iterrows():
-        if selecionado == f"{row['username']} ({row['email'] or 'sem email'})":
-            user_id = row['user_id']
-            break
+    # Use cached users list
+    df_users = _get_users_list_cached()
+    selecionado, user_id = _create_user_selector(df_users, "🔍 Escolhe um utilizador para editar")
 
     if user_id:
         cursor.execute("SELECT username FROM t_users WHERE user_id = %s", (user_id,))
@@ -120,8 +173,8 @@ def _modify_user(conn, cursor):
             value=birth_date or datetime.date(2000, 1, 1)
         )
 
-        engine = get_engine()
-        df_gender = pd.read_sql("SELECT gender_id, gender_name FROM t_gender ORDER BY gender_name", engine)
+        # Use cached gender list
+        df_gender = _get_gender_list_cached()
         genero_opcoes = df_gender["gender_name"].tolist()
         genero_selecionado = st.selectbox(
             "Género",
@@ -185,8 +238,8 @@ def _add_user(conn, cursor):
     last_name = st.text_input("Último Nome")
     birth_date = st.date_input("Data de Nascimento")
 
-    engine = get_engine()
-    df_gender = pd.read_sql("SELECT gender_id, gender_name FROM t_gender ORDER BY gender_name", engine)
+    # Use cached gender list
+    df_gender = _get_gender_list_cached()
     genero_opcoes = df_gender["gender_name"].tolist()
     genero_selecionado = st.selectbox("Género", genero_opcoes)
 
@@ -249,25 +302,9 @@ def _financial_data(conn, cursor):
     """Gestão de dados financeiros (movimentos de capital)"""
     st.subheader("💰 Dados Financeiros")
 
-    # Obter lista de utilizadores
-    engine = get_engine()
-    df_users = pd.read_sql("""
-        SELECT tu.user_id, tu.username, tup.email
-        FROM t_users tu
-        LEFT JOIN t_user_profile tup ON tup.user_id = tu.user_id
-        ORDER BY tu.user_id
-    """, engine)
-    opcoes = [f"{row['username']} ({row['email'] or 'sem email'})" for _, row in df_users.iterrows()]
-
-    # Selectbox com pesquisa
-    selecionado = st.selectbox("🔍 Escolhe um utilizador", opcoes)
-
-    # Encontrar ID do utilizador selecionado
-    user_id = None
-    for idx, row in df_users.iterrows():
-        if selecionado == f"{row['username']} ({row['email'] or 'sem email'})":
-            user_id = row['user_id']
-            break
+    # Use cached users list
+    df_users = _get_users_list_cached()
+    selecionado, user_id = _create_user_selector(df_users, "🔍 Escolhe um utilizador")
 
     if user_id in [1, 2]:
         st.warning("⚠️ Este utilizador é um administrador. Não é permitido editar transações.")

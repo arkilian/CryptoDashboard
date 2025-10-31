@@ -60,12 +60,13 @@ def show():
         if user_id is None and is_admin:
             # Vista agregada - todos os utilizadores (exceto admins)
             df_mov = pd.read_sql("""
-                SELECT movement_date::date AS date,
-                       SUM(COALESCE(credit, 0) - COALESCE(debit, 0)) AS net_movement
-                FROM t_user_capital_movements
-                WHERE user_id NOT IN (1, 2)
-                GROUP BY movement_date::date
-                ORDER BY movement_date
+                SELECT tucm.movement_date::date AS date,
+                       SUM(COALESCE(tucm.credit, 0) - COALESCE(tucm.debit, 0)) AS net_movement
+                FROM t_user_capital_movements tucm
+                JOIN t_users tu ON tucm.user_id = tu.user_id
+                WHERE tu.is_admin = FALSE
+                GROUP BY tucm.movement_date::date
+                ORDER BY tucm.movement_date
             """, engine)
         elif user_id:
             # Vista de utilizador específico
@@ -211,7 +212,7 @@ def show():
                     COALESCE(SUM(COALESCE(tucm.credit, 0) - COALESCE(tucm.debit, 0)), 0) AS "Saldo Total (€)"
                 FROM t_users tu
                 LEFT JOIN t_user_capital_movements tucm ON tu.user_id = tucm.user_id
-                WHERE tu.user_id NOT IN (1, 2)
+                WHERE tu.is_admin = FALSE
                 GROUP BY tu.user_id, tu.username
                 HAVING COALESCE(SUM(COALESCE(tucm.credit, 0) - COALESCE(tucm.debit, 0)), 0) > 0
                 ORDER BY "Saldo Total (€)" DESC

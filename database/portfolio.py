@@ -25,7 +25,7 @@ def insert_snapshot_and_fees(user_id, snapshot_date, df_assets):
             VALUES (%s, %s, %s, %s, %s)
         """, asset_data)
 
-        # Obter todos os utilizadores (exceto admin e fees) com seus últimos snapshots em uma única query
+        # Obter todos os utilizadores (exceto admin) com seus últimos snapshots em uma única query
         cur.execute("""
             SELECT u.user_id, 
                    COALESCE(
@@ -37,7 +37,7 @@ def insert_snapshot_and_fees(user_id, snapshot_date, df_assets):
                        0
                    ) as valor_antes
             FROM t_users u
-            WHERE u.user_id NOT IN (1, 2)
+            WHERE u.is_admin = FALSE
         """)
         user_data = cur.fetchall()
 

@@ -400,8 +400,9 @@ def _financial_data(conn, cursor):
                 COALESCE(SUM(credit), 0) as total_credits,
                 COALESCE(SUM(debit), 0) as total_debits,
                 COALESCE(SUM(credit) - SUM(debit), 0) as balance
-            FROM t_user_capital_movements
-            WHERE user_id NOT IN (1, 2)
+            FROM t_user_capital_movements tucm
+            JOIN t_users tu ON tucm.user_id = tu.user_id
+            WHERE tu.is_admin = FALSE
         """, engine)
         
         col1, col2, col3, col4 = st.columns(4)
@@ -421,7 +422,7 @@ def _financial_data(conn, cursor):
             SELECT tucm.movement_date, tucm.credit, tucm.debit, tucm.description, tu.username
             FROM t_user_capital_movements tucm
             JOIN t_users tu ON tu.user_id = tucm.user_id
-            WHERE tucm.user_id NOT IN (1, 2)
+            WHERE tu.is_admin = FALSE
             ORDER BY tucm.movement_date DESC
             LIMIT 100
         """, engine)

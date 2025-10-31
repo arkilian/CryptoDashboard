@@ -13,11 +13,15 @@ import pandas as pd
 from sqlalchemy import text
 from database.connection import get_engine
 from services.coingecko import CoinGeckoService
+import time
 
 logger = logging.getLogger(__name__)
 
 # URL base da API CoinGecko
 BASE_URL = "https://api.coingecko.com/api/v3"
+
+# Cache global para evitar chamadas repetidas durante mesma execução
+_prices_session_cache = {}  # {(symbol, date): price}
 
 
 def get_historical_price(asset_id: int, target_date: date) -> Optional[float]:
@@ -68,6 +72,10 @@ def get_historical_price(asset_id: int, target_date: date) -> Optional[float]:
     # Buscar preço histórico do CoinGecko usando endpoint de histórico por data específica
     try:
         import requests
+        import time
+        
+        # DELAY: Adicionar pausa para respeitar rate limit do CoinGecko (10-30 req/min na API gratuita)
+        time.sleep(2)  # 2 segundos entre chamadas = ~30 req/min
         
         days_ago = (date.today() - target_date).days
         
@@ -160,7 +168,7 @@ def get_historical_prices_bulk(asset_ids: List[int], target_date: date) -> Dict[
     
     engine = get_engine()
     
-    # Buscar da BD em batch
+    # Buscar da BD em batch PRIMEIRO
     placeholders = ','.join(['%s'] * len(asset_ids))
     df = pd.read_sql(
         f"""
@@ -174,12 +182,78 @@ def get_historical_prices_bulk(asset_ids: List[int], target_date: date) -> Dict[
     
     result = {int(row['asset_id']): float(row['price_eur']) for _, row in df.iterrows()}
     
-    # Para assets sem preço, buscar individualmente (pode ser otimizado)
+    if result:
+        logger.info(f"✅ Encontrados {len(result)}/{len(asset_ids)} preços na BD para {target_date}")
+    
+    # Para assets sem preço na BD, buscar individualmente do CoinGecko e guardar
     missing = [aid for aid in asset_ids if aid not in result]
-    for aid in missing:
-        price = get_historical_price(aid, target_date)
-        if price:
-            result[aid] = price
+    if missing:
+        logger.info(f"🌐 Buscando {len(missing)} preços em falta do CoinGecko para {target_date}...")
+        for aid in missing:
+            price = get_historical_price(aid, target_date)  # Busca CoinGecko e guarda na BD
+            if price:
+                result[aid] = price
+    
+    return result
+
+
+def get_historical_prices_by_symbol(symbols: List[str], target_date: date) -> Dict[str, float]:
+    """Busca preços históricos para múltiplos símbolos numa data.
+    
+    Args:
+        symbols: Lista de símbolos de ativos (ex: ['BTC', 'ADA', 'ETH'])
+        target_date: Data para a qual queremos os preços
+        
+    Returns:
+        Dicionário {symbol: price_eur}
+    """
+    if not symbols:
+        return {}
+    
+    # Verificar cache de sessão primeiro
+    result = {}
+    missing_symbols = []
+    
+    for sym in symbols:
+        cache_key = (sym, target_date)
+        if cache_key in _prices_session_cache:
+            result[sym] = _prices_session_cache[cache_key]
+        else:
+            missing_symbols.append(sym)
+    
+    if not missing_symbols:
+        return result  # Todos no cache
+    
+    engine = get_engine()
+    
+    # Buscar asset_ids dos símbolos
+    placeholders = ','.join(['%s'] * len(missing_symbols))
+    df_assets = pd.read_sql(
+        f"""
+        SELECT asset_id, symbol 
+        FROM t_assets 
+        WHERE symbol IN ({placeholders})
+        """,
+        engine,
+        params=tuple(missing_symbols)
+    )
+    
+    if df_assets.empty:
+        return result
+    
+    # Mapear symbol -> asset_id
+    symbol_to_id = {row['symbol']: int(row['asset_id']) for _, row in df_assets.iterrows()}
+    asset_ids = list(symbol_to_id.values())
+    
+    # Buscar preços históricos por asset_id (com rate limiting)
+    prices_by_id = get_historical_prices_bulk(asset_ids, target_date)
+    
+    # Mapear de volta para símbolos e guardar no cache
+    for symbol, asset_id in symbol_to_id.items():
+        if asset_id in prices_by_id:
+            price = prices_by_id[asset_id]
+            result[symbol] = price
+            _prices_session_cache[(symbol, target_date)] = price
     
     return result
 

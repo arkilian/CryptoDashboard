@@ -227,20 +227,63 @@ def show():
                             else:
                                 df_all_cap = pd.DataFrame(columns=["date","credit","debit"])
                             
-                            # Buscar preços de HOJE para todos os ativos
+                            # Buscar preços históricos dos snapshots para cada data de evento
                             unique_symbols = df_all_tx['symbol'].unique().tolist() if not df_all_tx.empty else []
-                            today_prices = {}
-                            if unique_symbols:
-                                today_prices = get_price_by_symbol(unique_symbols, vs_currency='eur')
                             
                             # Criar array de datas para calcular evolução
-                            all_dates = sorted(set(df_cap["date"].tolist()))
+                            # Regra de marcadores: um ponto por cada evento (depósito/levantamento OU compra/venda)
+                            # + dia 1 de cada mês no intervalo
+                            event_dates = set(df_cap["date"].tolist())
+                            if not df_all_tx.empty:
+                                event_dates.update(df_all_tx["date"].tolist())
+                            
+                            # Adicionar dia 1 de cada mês entre start_date e end_date
+                            from datetime import datetime as dt_datetime
+                            from dateutil.relativedelta import relativedelta
+                            
+                            current_month = start_date.replace(day=1)
+                            while current_month <= end_date:
+                                # Adicionar dia 1 se estiver dentro do intervalo
+                                if current_month >= start_date:
+                                    event_dates.add(current_month)
+                                # Próximo mês
+                                current_month = current_month + relativedelta(months=1)
+                            
+                            all_dates = sorted(event_dates)
                             if not all_dates:
                                 raise ValueError("Sem datas para calcular evolução")
                             
+                            # PRÉ-FETCH: Buscar TODOS os preços históricos de UMA VEZ para evitar rate limit
+                            from services.snapshots import get_historical_prices_by_symbol
+                            
+                            # Criar cache de preços: {date: {symbol: price}}
+                            prices_cache = {}
+                            if unique_symbols:
+                                # Mostrar progresso
+                                total_dates = len(all_dates)
+                                progress_text = st.empty()
+                                progress_bar = st.progress(0.0)
+                                info_text = st.empty()
+                                
+                                for idx, calc_date in enumerate(all_dates):
+                                    progress_text.text(f"🔄 A carregar preços históricos... {idx+1}/{total_dates} datas")
+                                    progress_bar.progress((idx + 1) / total_dates)
+                                    
+                                    prices = get_historical_prices_by_symbol(unique_symbols, calc_date)
+                                    prices_cache[calc_date] = prices
+                                    
+                                    # Informar se buscou da BD ou API
+                                    if prices:
+                                        info_text.text(f"✅ {calc_date}: {len(prices)} preços carregados (BD local + CoinGecko se necessário)")
+                                
+                                # Limpar mensagens de progresso
+                                progress_text.empty()
+                                progress_bar.empty()
+                                info_text.empty()
+                            
                             saldo_evolution = []
                             
-                            # Calcular saldo para cada data
+                            # Calcular saldo para cada data usando preços DESSA DATA (snapshots)
                             for calc_date in all_dates:
                                 # Caixa até esta data
                                 cap_until = df_all_cap[df_all_cap["date"] <= calc_date]
@@ -256,7 +299,7 @@ def show():
                                     ).sum()
                                     cash = cash - spent + received
                                 
-                                # Posições até esta data valoradas com preços de HOJE
+                                # Posições até esta data valoradas com preços DESSA DATA (snapshots)
                                 holdings_value = 0.0
                                 if not tx_until.empty:
                                     holdings = {}
@@ -268,14 +311,27 @@ def show():
                                         else:
                                             holdings[sym] = holdings.get(sym, 0.0) - qty
                                     
-                                    # Valorizar com preços de HOJE
+                                    # Usar preços do cache (já buscados)
+                                    historical_prices = prices_cache.get(calc_date, {})
+                                    
+                                    # Valorizar com preços DA DATA calc_date
                                     for sym, qty in holdings.items():
-                                        if qty > 0 and sym in today_prices and today_prices[sym]:
-                                            holdings_value += qty * float(today_prices[sym])
+                                        if qty > 0 and sym in historical_prices and historical_prices[sym]:
+                                            holdings_value += qty * float(historical_prices[sym])
                                 
                                 saldo_evolution.append(cash + holdings_value)
                             
-                            df_cap["saldo_atual"] = saldo_evolution
+                            # Alinhar séries acumuladas (depósitos/levantamentos) às datas de eventos (forward-fill)
+                            df_dates = pd.DataFrame({"date": pd.to_datetime(all_dates)})
+                            df_cap_cum = df_cap[["date","depositado_acum","levantado_acum"]].copy()
+                            df_cap_cum["date"] = pd.to_datetime(df_cap_cum["date"])
+                            df_cap_cum = df_cap_cum.sort_values("date")
+                            df_dates = df_dates.sort_values("date")
+                            
+                            df_plot = pd.merge_asof(df_dates, df_cap_cum, on="date", direction="backward")
+                            df_plot[["depositado_acum","levantado_acum"]] = df_plot[["depositado_acum","levantado_acum"]].fillna(0)
+                            df_plot["saldo_atual"] = saldo_evolution
+
                             saldo_atual_fundo = saldo_evolution[-1] if saldo_evolution else 0.0
                             
                             # Totais para métricas
@@ -286,31 +342,35 @@ def show():
                             st.warning(f"⚠️ Não foi possível calcular evolução do saldo: {e}")
                             import traceback
                             st.code(traceback.format_exc())
-                            df_cap["saldo_atual"] = 0.0
+                            # Criar df_plot vazio para evitar UnboundLocalError
+                            df_plot = df_cap[["date"]].copy()
+                            df_plot["depositado_acum"] = df_cap.get("depositado_acum", 0.0)
+                            df_plot["levantado_acum"] = df_cap.get("levantado_acum", 0.0)
+                            df_plot["saldo_atual"] = 0.0
                             saldo_atual_fundo = None
                             total_credit = 0.0
                             total_debit = 0.0
 
                         fig_portfolio = go.Figure()
                         fig_portfolio.add_trace(go.Scatter(
-                            x=df_cap["date"],
-                            y=df_cap["depositado_acum"],
+                            x=df_plot["date"],
+                            y=df_plot["depositado_acum"],
                             mode='lines+markers',
                             name='Total Depositado',
                             line=dict(color='blue')
                         ))
                         fig_portfolio.add_trace(go.Scatter(
-                            x=df_cap["date"],
-                            y=df_cap["levantado_acum"],
+                            x=df_plot["date"],
+                            y=df_plot["levantado_acum"],
                             mode='lines+markers',
                             name='Total Levantado',
                             line=dict(color='red')
                         ))
                         # Linha do Saldo Atual (evolutiva)
-                        if "saldo_atual" in df_cap.columns and len(df_cap) > 0:
+                        if len(df_plot) > 0:
                             fig_portfolio.add_trace(go.Scatter(
-                                x=df_cap["date"],
-                                y=df_cap["saldo_atual"],
+                                x=df_plot["date"],
+                                y=df_plot["saldo_atual"],
                                 mode='lines+markers',
                                 name='Saldo Atual',
                                 line=dict(color='green', width=3)
@@ -325,21 +385,14 @@ def show():
                         )
                         st.plotly_chart(fig_portfolio, use_container_width=True)
 
-                # Mostrar métricas resumo com valores calculados
+                # Calcular SALDO ATUAL com preços de HOJE (para as métricas)
                 try:
-                    if 'saldo_atual_fundo' in locals() and saldo_atual_fundo is not None:
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.metric("💰 Saldo Atual (Fundo)", f"{saldo_atual_fundo:,.2f} €")
-                        with col2:
-                            st.metric("📈 Total Depositado", f"{total_credit:,.2f} €")
-                        with col3:
-                            st.metric("📉 Total Levantado", f"{total_debit:,.2f} €")
-                        
-                        st.divider()
-                        
-                        # Holdings detalhados do fundo
-                        st.markdown("### 💼 Composição do Portfólio")
+                    if 'total_credit' in locals() and 'total_debit' in locals():
+                        # Buscar preços de HOJE
+                        unique_symbols_today = df_all_tx['symbol'].unique().tolist() if 'df_all_tx' in locals() and not df_all_tx.empty else []
+                        today_prices = {}
+                        if unique_symbols_today:
+                            today_prices = get_price_by_symbol(unique_symbols_today, vs_currency='eur')
                         
                         # Calcular caixa disponível
                         cash_balance = total_credit - total_debit
@@ -352,9 +405,9 @@ def show():
                             ).sum()
                             cash_balance = cash_balance - spent_total + received_total
                         
-                        # Calcular holdings de cripto
+                        # Calcular holdings com preços de HOJE
                         crypto_holdings = []
-                        if 'df_all_tx' in locals() and not df_all_tx.empty and 'today_prices' in locals():
+                        if 'df_all_tx' in locals() and not df_all_tx.empty:
                             holdings_by_symbol = {}
                             for _, row in df_all_tx.iterrows():
                                 sym = row["symbol"]
@@ -376,18 +429,43 @@ def show():
                                             "Valor Total (€)": value_eur
                                         })
                         
-                        # Mostrar resumo
+                        # SALDO ATUAL REAL = caixa + cripto a preços de HOJE
+                        crypto_value_today = sum([h["Valor Total (€)"] for h in crypto_holdings])
+                        saldo_atual_real = cash_balance + crypto_value_today
+                        
+                except Exception as e:
+                    saldo_atual_real = None
+                    cash_balance = 0
+                    crypto_holdings = []
+                    crypto_value_today = 0
+
+                # Mostrar métricas resumo
+                try:
+                    if 'total_credit' in locals() and 'total_debit' in locals():
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("💰 Saldo Atual (Fundo)", f"{saldo_atual_real:,.2f} €" if saldo_atual_real is not None else "N/A")
+                        with col2:
+                            st.metric("📈 Total Depositado", f"{total_credit:,.2f} €")
+                        with col3:
+                            st.metric("📉 Total Levantado", f"{total_debit:,.2f} €")
+                        
+                        st.divider()
+                        
+                        # Holdings detalhados do fundo (já calculados acima)
+                        st.markdown("### 💼 Composição do Portfólio")
+                        
+                        # Métricas de caixa e cripto
                         col1, col2 = st.columns(2)
                         with col1:
                             st.metric("💶 Caixa (EUR)", f"€{cash_balance:,.2f}")
                         with col2:
-                            crypto_value = sum([h["Valor Total (€)"] for h in crypto_holdings])
-                            st.metric("🪙 Valor em Cripto", f"€{crypto_value:,.2f}")
+                            st.metric("🪙 Valor em Cripto", f"€{crypto_value_today:,.2f}")
                         
                         # Tabela de holdings cripto
                         if crypto_holdings:
                             df_holdings = pd.DataFrame(crypto_holdings)
-                            df_holdings["% do Portfólio"] = (df_holdings["Valor Total (€)"] / saldo_atual_fundo * 100).round(2)
+                            df_holdings["% do Portfólio"] = (df_holdings["Valor Total (€)"] / saldo_atual_real * 100).round(2)
                             
                             st.dataframe(
                                 df_holdings,

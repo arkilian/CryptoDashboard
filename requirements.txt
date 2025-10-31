@@ -14,3 +14,4 @@ pycoingecko==3.1.0
 streamlit-aggrid==0.3.4
 python-jose==3.3.0
 SQLAlchemy==2.0.36
+python-dateutil==2.9.0

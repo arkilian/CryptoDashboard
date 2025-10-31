@@ -1,61 +1,190 @@
 # 📊 Crypto Dashboard
 
-Uma plataforma para gestão de um fundo comunitário de criptomoedas, com foco em transparência, controlo e simplicidade para administradores e investidores.
+Uma plataforma completa para gestão de um fundo comunitário de criptomoedas, com sistema de ownership baseado em shares/NAV, tracking histórico de preços, e análise de performance em tempo real.
 
-## 🚀 Funcionalidades (o que a plataforma faz)
+## 🎯 Visão Geral
 
-- 🔐 Autenticação e perfis
-   - Registo com username, email e password
-   - Perfis de utilizador com dados pessoais (nome, data de nascimento, género, morada)
-   - Perfis de acesso: Administrador e Utilizador
+O Crypto Dashboard é uma solução profissional para gestão transparente de fundos comunitários de criptoativos. Combina:
+- **Sistema de Ownership Justo**: Baseado em NAV/share (Net Asset Value), garantindo que cada participante tem uma fatia proporcional do fundo
+- **Histórico Completo**: Todos os movimentos, transações e variações de preço são rastreados e auditáveis
+- **Análise Avançada**: Gráficos de evolução, composição de portfólio, e métricas de performance
+- **Integração de Mercado**: Preços em tempo real e históricos via CoinGecko API
+- **Transparência Total**: Cada utilizador vê sua propriedade exata do fundo e evolução patrimonial
 
-- 👥 Gestão de Utilizadores (Admin)
-   - Ver lista de utilizadores e respetivos contactos
-   - Adicionar/editar utilizadores (inclui definição/alteração de password)
-   - Secção de dados financeiros por utilizador (depósitos e levantamentos)
+## 🚀 Funcionalidades Principais
 
-- 💰 Movimentos de Capital
-   - Registo de depósitos e levantamentos por utilizador
-   - Histórico completo e filtros por data
+### 🔐 Autenticação e Perfis
+- Registo seguro com username, email e password (hash bcrypt)
+- Perfis completos com dados pessoais (nome, data de nascimento, género, morada)
+- Dois níveis de acesso: **Administrador** e **Utilizador**
+- Sessão persistente e gerida via Streamlit
 
-- 📸 Snapshots de Portfólio
-   - Registo manual de valores por carteira (Binance, Ledger, DeFi, Outros)
-   - Consulta de snapshots por intervalo de datas
+### 👥 Gestão de Utilizadores (Admin)
+- Dashboard completo de utilizadores com filtros e pesquisa
+- Adicionar/editar utilizadores e definir passwords
+- **Movimentos de Capital por Utilizador**:
+  - Depósitos: registam crédito e **alocam shares automaticamente** com base no NAV/share do momento
+  - Levantamentos: registam débito e **queimam shares proporcionalmente**
+  - Histórico completo auditável com datas e valores
 
-- 📈 Análise de Portfólio
-   - Evolução do saldo (gráfico e métricas)
-   - Ranking de Top Holders da comunidade
-   - Distribuição de capital por utilizador
+### � Sistema de Shares & NAV (Ownership)
+**O coração do sistema** - garante propriedade justa e proporcional:
 
-- 📊 Cotações
-   - Integração com CoinGecko para consulta de preços e lista de ativos
+- **NAV (Net Asset Value)**: Valor total do fundo = Caixa + Holdings em Cripto a preços atuais
+- **NAV por Share**: Preço de cada share = NAV Total ÷ Total de Shares em circulação
+- **Alocação em Depósitos**: Shares atribuídas = Valor depositado ÷ NAV/share no momento
+- **Queima em Levantamentos**: Shares removidas = Valor levantado ÷ NAV/share no momento
+- **Ownership %**: Percentagem do utilizador = (Suas shares ÷ Total shares) × 100
 
-- 📄 Documentos
-   - Visualização de PDFs (ex.: regulamento, estratégia, roadmap)
+**Exemplo prático:**
+```
+Fundo tem NAV de €1000 e 1000 shares → NAV/share = €1.00
+Utilizador A deposita €500 → recebe 500 shares (50% do fundo)
+Mercado sobe 20% → NAV = €1200, NAV/share = €1.20
+Utilizador B deposita €600 → recebe 500 shares (€600 ÷ €1.20)
+Agora: Total 1500 shares, A tem 33.3%, B tem 33.3%, resto do fundo 33.3%
+```
 
-## 💼 Modelo de Negócio (como funciona)
+### 💰 Transações de Cripto
+- **Compra e Venda** de criptoativos com tracking completo:
+  - Quantidade, preço unitário, total em EUR, fees
+  - Botão "Usar preço de mercado" para preencher automaticamente preço atual
+  - **Preços históricos**: Para transações antigas, o sistema busca e armazena o preço da data selecionada
+  - Validação de saldo de caixa disponível antes de compras
+  - Atualização automática de holdings do fundo
 
-O Crypto Dashboard foi desenhado para gerir um fundo comunitário de criptoativos, onde os participantes aportam capital e acompanham, em tempo real, a valorização e as operações do fundo.
+### � Análise de Portfólio
+Dashboard completo com três componentes principais:
 
-- Entradas e saídas de capital
-   - Os utilizadores podem aportar (depósitos) e resgatar (levantamentos) capital, com histórico totalmente auditável.
+#### 1️⃣ **Métricas de Topo**
+- 💰 Saldo Atual (Fundo): NAV total calculado em tempo real
+- 📈 Total Depositado: Soma de todos os depósitos
+- 📉 Total Levantado: Soma de todos os levantamentos
 
-- Estrutura de taxas (configurável pelo Admin)
-   - Taxa de manutenção: aplicada periodicamente com taxa percentual e mínimo por utilizador.
-   - Taxa de performance: cobrada sobre lucros acima do High-Water Mark (HWM), garantindo que só há cobrança quando o valor líquido do utilizador supera o máximo histórico.
+#### 2️⃣ **Gráfico de Evolução do Portfólio**
+- **Linha Azul**: Total depositado acumulado
+- **Linha Vermelha**: Total levantado acumulado  
+- **Linha Verde**: Saldo Atual evolutivo
+  - Cada ponto usa **preços históricos da data** (via snapshots)
+  - Marcadores em todas as datas de eventos (depósitos, levantamentos, transações)
+  - Marcadores no **dia 1 de cada mês** para referência temporal
+  - Prefetch inteligente de preços com cache para evitar rate limits
 
-- Transparência e reporting
-   - Evolução de saldo por utilizador e no agregado (Fundo Comunitário)
-   - Ranking de Top Holders e distribuição do capital
-   - Snapshots de portfólio por carteiras e histórico de movimentos
+#### 3️⃣ **Composição do Portfólio**
+- 💶 Caixa (EUR): Saldo disponível para compras
+- 🪙 Valor em Cripto: Total em holdings a preços atuais
+- **Tabela de Holdings**: Ativo, quantidade, preço atual, valor total, % do portfólio
+- Todos os valores calculados com preços de **hoje** (métricas) vs **históricos** (gráfico)
 
-- Governança e perfis
-   - Administradores gerem utilizadores, taxas, documentos e análises globais
-   - Utilizadores acompanham o próprio saldo, movimentos e documentos do fundo
+#### 4️⃣ **Top Holders da Comunidade** (Admin)
+- 📊 NAV por Share: Preço atual de cada share
+- 🔢 Total Shares: Shares totais em circulação
+- 💰 NAV Total Fundo: Valor total do fundo
+- **Tabela de Propriedade**:
+  - 🥇🥈🥉 Medalhas para top 3
+  - Username, Shares, Propriedade (%), Valor (€)
+  - Ordenação por % de propriedade
+- **Gráfico Pizza**: Distribuição visual de ownership
 
-> Nota: Esta plataforma é uma ferramenta de gestão e transparência. Não constitui aconselhamento financeiro. A utilização e parametrização das taxas é da responsabilidade dos administradores do fundo.
+### 📸 Sistema de Snapshots de Preços
+**Cache inteligente** para otimizar performance e reduzir chamadas à API:
 
-## 📚 Documentação técnica
+- **Tabela `t_price_snapshots`**: Armazena preços históricos (asset, data, preço, moeda)
+- **Lógica DB-First**: 
+  1. Tenta buscar preço na base de dados local
+  2. Se não existir, consulta CoinGecko API
+  3. Armazena resultado para uso futuro
+  4. Delay de 2 segundos entre chamadas API para respeitar rate limits
+- **Session Cache**: Evita buscas duplicadas na mesma sessão
+- **Bulk Fetching**: Busca preços de múltiplos ativos de uma vez
+- **Endpoints CoinGecko**:
+  - Preços atuais: `/simple/price` (EUR)
+  - Preços históricos: `/coins/{id}/history?date=DD-MM-YYYY` (EUR)
 
-A documentação técnica (setup, dependências, arquitetura, migrações, etc.) está disponível na Wiki do projeto.
+### 📈 Cotações em Tempo Real
+- Consulta de preços via CoinGecko API
+- Lista completa de ativos disponíveis para trading
+- Integração com sistema de transações
+
+### 📄 Gestão de Documentos (Admin)
+- Upload e visualização de PDFs
+- Documentos típicos: regulamento, estratégia de investimento, roadmap
+- Acesso para todos os utilizadores
+
+### ⚙️ Configurações
+- **Gestão de Snapshots** (Admin):
+  - Ver total de snapshots armazenados
+  - Limpar cache se necessário
+  - Estatísticas de uso
+- Configurações de perfil de utilizador
+
+## 💼 Modelo de Negócio
+
+### Como Funciona o Fundo
+
+O Crypto Dashboard implementa um modelo de **fundo comunitário** onde:
+
+1. **Participantes depositam capital** que entra para um pool comum
+2. **Administradores gerem investimentos** em criptoativos
+3. **Sistema de shares garante propriedade justa**:
+   - Quem entra quando NAV está baixo recebe mais shares
+   - Quem entra quando NAV está alto recebe menos shares
+   - Todos beneficiam proporcionalmente dos ganhos (ou perdas)
+4. **Transparência total**: Cada participante vê exatamente quanto possui do fundo
+
+### Vantagens do Sistema de Shares/NAV
+
+✅ **Justo**: Entrada e saída sempre pelo valor real do fundo  
+✅ **Transparente**: Ownership calculado matematicamente  
+✅ **Flexível**: Depósitos e levantamentos a qualquer momento  
+✅ **Profissional**: Mesmo modelo usado por fundos de investimento tradicionais  
+✅ **Auditável**: Todo o histórico de shares preservado
+
+### Casos de Uso
+
+- **Fundos Comunitários**: Grupo de amigos ou família investindo juntos
+- **Clubes de Investimento**: Comunidades com interesse em cripto
+- **Family Offices**: Gestão patrimonial familiar em cripto
+- **Gestão de Tesouraria**: Organizações/DAOs gerindo ativos digitais
+
+### Estrutura de Taxas (Configurável)
+
+O sistema suporta implementação de:
+- Taxa de manutenção periódica
+- Taxa de performance sobre lucros (High-Water Mark)
+- Configuração por administradores
+
+> **Nota Legal**: Esta plataforma é uma ferramenta de gestão e transparência. Não constitui aconselhamento financeiro ou de investimento. A utilização, parametrização e legalidade da operação são responsabilidade dos administradores e participantes do fundo.
+
+## 🏗️ Stack Tecnológico
+
+- **Frontend**: Streamlit (Python)
+- **Backend**: Python 3.10+
+- **Base de Dados**: PostgreSQL
+- **APIs Externas**: CoinGecko (preços de criptomoedas)
+- **Autenticação**: bcrypt para hash de passwords
+- **Gráficos**: Plotly
+- **Cache**: Sistema próprio de snapshots em PostgreSQL
+
+## 📚 Documentação Completa
+
+Para documentação técnica detalhada, arquitetura, guias de setup e modelo de negócio, consulte a **[Wiki do Projeto](wiki/)**:
+
+- [🏗️ Arquitetura Técnica](wiki/01-arquitetura.md)
+- [💎 Sistema de Shares/NAV](wiki/02-shares-nav.md)
+- [📸 Snapshots e Preços](wiki/03-snapshots-precos.md)
+- [💼 Modelo de Negócio](wiki/04-modelo-negocio.md)
+- [👤 Guias de Utilizador](wiki/05-guias-utilizador.md)
+- [🚀 Setup e Deployment](wiki/06-setup-deployment.md)
+
+## 🎯 Roadmap
+
+- [ ] Sistema de notificações (email/push)
+- [ ] Relatórios mensais automatizados
+- [ ] Implementação completa de taxas de gestão
+- [ ] API REST para integrações externas
+- [ ] Mobile app (React Native)
+- [ ] Suporte multi-moeda (USD, GBP, etc)
+- [ ] Integração com mais exchanges (Binance, Coinbase)
+- [ ] Sistema de proposta e votação (governança)
 

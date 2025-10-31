@@ -157,7 +157,7 @@ def show():
                         params=(user_id,),
                     )
                 else:
-                    df_cap = pd.DataFrame(columns=["date","total_credit","total_debit"])            
+                    df_cap = pd.DataFrame(columns=["date","total_credit","total_debit"])
 
                 if df_cap.empty:
                     st.info("ℹ️ Sem dados de depósitos/levantamentos para o período.")
@@ -171,9 +171,10 @@ def show():
                         df_cap["depositado_acum"] = df_cap["total_credit"].cumsum()
                         df_cap["levantado_acum"] = df_cap["total_debit"].cumsum()
 
-                        # Calcular Saldo Atual evolutivo (caixa + valor de mercado das posições ao longo do tempo)
+                        # Calcular Saldo Atual evolutivo usando SEMPRE preços de hoje para holdings
                         try:
-                            from services.snapshots import get_historical_prices_bulk
+                            from services.coingecko import get_price_by_symbol
+                            from datetime import date as date_cls
                             
                             # Buscar todas as transações até o período
                             df_all_tx = pd.read_sql(
@@ -226,6 +227,12 @@ def show():
                             else:
                                 df_all_cap = pd.DataFrame(columns=["date","credit","debit"])
                             
+                            # Buscar preços de HOJE para todos os ativos
+                            unique_symbols = df_all_tx['symbol'].unique().tolist() if not df_all_tx.empty else []
+                            today_prices = {}
+                            if unique_symbols:
+                                today_prices = get_price_by_symbol(unique_symbols, vs_currency='eur')
+                            
                             # Criar array de datas para calcular evolução
                             all_dates = sorted(set(df_cap["date"].tolist()))
                             if not all_dates:
@@ -249,25 +256,22 @@ def show():
                                     ).sum()
                                     cash = cash - spent + received
                                 
-                                # Posições até esta data
+                                # Posições até esta data valoradas com preços de HOJE
                                 holdings_value = 0.0
                                 if not tx_until.empty:
                                     holdings = {}
                                     for _, row in tx_until.iterrows():
-                                        asset_id = int(row["asset_id"])
+                                        sym = row["symbol"]
                                         qty = row["quantity"]
                                         if row["transaction_type"] == "buy":
-                                            holdings[asset_id] = holdings.get(asset_id, 0.0) + qty
+                                            holdings[sym] = holdings.get(sym, 0.0) + qty
                                         else:
-                                            holdings[asset_id] = holdings.get(asset_id, 0.0) - qty
+                                            holdings[sym] = holdings.get(sym, 0.0) - qty
                                     
-                                    # Buscar preços históricos para esta data
-                                    assets_held = [aid for aid, q in holdings.items() if q > 0]
-                                    if assets_held:
-                                        prices_dict = get_historical_prices_bulk(assets_held, calc_date)
-                                        for aid, qty in holdings.items():
-                                            if qty > 0 and aid in prices_dict:
-                                                holdings_value += qty * prices_dict[aid]
+                                    # Valorizar com preços de HOJE
+                                    for sym, qty in holdings.items():
+                                        if qty > 0 and sym in today_prices and today_prices[sym]:
+                                            holdings_value += qty * float(today_prices[sym])
                                 
                                 saldo_evolution.append(cash + holdings_value)
                             
@@ -280,6 +284,8 @@ def show():
                             
                         except Exception as e:
                             st.warning(f"⚠️ Não foi possível calcular evolução do saldo: {e}")
+                            import traceback
+                            st.code(traceback.format_exc())
                             df_cap["saldo_atual"] = 0.0
                             saldo_atual_fundo = None
                             total_credit = 0.0
@@ -329,48 +335,203 @@ def show():
                             st.metric("📈 Total Depositado", f"{total_credit:,.2f} €")
                         with col3:
                             st.metric("📉 Total Levantado", f"{total_debit:,.2f} €")
+                        
+                        st.divider()
+                        
+                        # Holdings detalhados do fundo
+                        st.markdown("### 💼 Composição do Portfólio")
+                        
+                        # Calcular caixa disponível
+                        cash_balance = total_credit - total_debit
+                        if 'df_all_tx' in locals() and not df_all_tx.empty:
+                            spent_total = df_all_tx[df_all_tx["transaction_type"] == "buy"].apply(
+                                lambda r: r["total_eur"] + r["fee_eur"], axis=1
+                            ).sum()
+                            received_total = df_all_tx[df_all_tx["transaction_type"] == "sell"].apply(
+                                lambda r: r["total_eur"] - r["fee_eur"], axis=1
+                            ).sum()
+                            cash_balance = cash_balance - spent_total + received_total
+                        
+                        # Calcular holdings de cripto
+                        crypto_holdings = []
+                        if 'df_all_tx' in locals() and not df_all_tx.empty and 'today_prices' in locals():
+                            holdings_by_symbol = {}
+                            for _, row in df_all_tx.iterrows():
+                                sym = row["symbol"]
+                                qty = row["quantity"]
+                                if row["transaction_type"] == "buy":
+                                    holdings_by_symbol[sym] = holdings_by_symbol.get(sym, 0.0) + qty
+                                else:
+                                    holdings_by_symbol[sym] = holdings_by_symbol.get(sym, 0.0) - qty
+                            
+                            for sym, qty in holdings_by_symbol.items():
+                                if qty > 0:
+                                    price_today = today_prices.get(sym, 0)
+                                    if price_today:
+                                        value_eur = qty * float(price_today)
+                                        crypto_holdings.append({
+                                            "Ativo": sym,
+                                            "Quantidade": qty,
+                                            "Preço Atual (€)": float(price_today),
+                                            "Valor Total (€)": value_eur
+                                        })
+                        
+                        # Mostrar resumo
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.metric("💶 Caixa (EUR)", f"€{cash_balance:,.2f}")
+                        with col2:
+                            crypto_value = sum([h["Valor Total (€)"] for h in crypto_holdings])
+                            st.metric("🪙 Valor em Cripto", f"€{crypto_value:,.2f}")
+                        
+                        # Tabela de holdings cripto
+                        if crypto_holdings:
+                            df_holdings = pd.DataFrame(crypto_holdings)
+                            df_holdings["% do Portfólio"] = (df_holdings["Valor Total (€)"] / saldo_atual_fundo * 100).round(2)
+                            
+                            st.dataframe(
+                                df_holdings,
+                                use_container_width=True,
+                                hide_index=True,
+                                column_config={
+                                    "Quantidade": st.column_config.NumberColumn(format="%.8f"),
+                                    "Preço Atual (€)": st.column_config.NumberColumn(format="€%.6f"),
+                                    "Valor Total (€)": st.column_config.NumberColumn(format="€%.2f"),
+                                    "% do Portfólio": st.column_config.NumberColumn(format="%.2f%%")
+                                }
+                            )
+                        else:
+                            st.info("📭 Nenhum ativo em carteira no momento.")
+                        
                 except Exception as e:
                     st.warning(f"Não foi possível apresentar métricas: {e}")
+                    import traceback
+                    st.code(traceback.format_exc())
         
         # Seção de Top Holders (sempre visível para admin, independente da vista)
         if is_admin:
             st.markdown("---")
             st.markdown("### 🏆 Top Holders da Comunidade")
             
-            # Buscar top holders reais
-            df_top = pd.read_sql("""
-                SELECT 
-                    tu.username AS "Utilizador",
-                    COALESCE(SUM(COALESCE(tucm.credit, 0) - COALESCE(tucm.debit, 0)), 0) AS "Saldo Total (€)"
-                FROM t_users tu
-                LEFT JOIN t_user_capital_movements tucm ON tu.user_id = tucm.user_id
-                WHERE tu.is_admin = FALSE
-                GROUP BY tu.user_id, tu.username
-                HAVING COALESCE(SUM(COALESCE(tucm.credit, 0) - COALESCE(tucm.debit, 0)), 0) > 0
-                ORDER BY "Saldo Total (€)" DESC
-                LIMIT 10
-            """, engine)
+            # Verificar se a tabela t_user_shares existe
+            try:
+                check_shares_table = pd.read_sql(
+                    """
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.tables 
+                        WHERE table_schema = 'public' 
+                        AND table_name = 't_user_shares'
+                    );
+                    """,
+                    engine
+                )
+                shares_table_exists = check_shares_table.iloc[0, 0]
+            except:
+                shares_table_exists = False
             
-            if not df_top.empty:
-                # Adiciona medalhas (ajusta para o número real de linhas)
-                num_rows = len(df_top)
-                medals = ["🥇", "🥈", "🥉"][:num_rows] + [""] * max(0, num_rows - 3)
-                df_top.insert(0, "🏅", medals)
+            if shares_table_exists:
+                # Usar sistema de shares (NAV-based ownership)
+                from services.shares import get_all_users_ownership, calculate_nav_per_share, get_total_shares_in_circulation
                 
-                # Mostra tabela
-                st.dataframe(df_top, use_container_width=True)
-                
-                # Gráfico de pizza
-                if len(df_top) > 1:
-                    fig_pie = px.pie(
-                        df_top,
-                        names='Utilizador',
-                        values='Saldo Total (€)',
-                        title='Distribuição de Capital por Utilizador'
-                    )
-                    st.plotly_chart(fig_pie, use_container_width=True)
+                try:
+                    ownership_data = get_all_users_ownership()
+                    
+                    if ownership_data:
+                        # Criar dataframe com informação de ownership
+                        df_top = pd.DataFrame(ownership_data)
+                        df_top = df_top.rename(columns={
+                            'username': 'Utilizador',
+                            'shares': 'Shares',
+                            'ownership_pct': 'Propriedade (%)',
+                            'value_eur': 'Valor (€)'
+                        })
+                        
+                        # Ordenar por percentagem de propriedade
+                        df_top = df_top.sort_values('Propriedade (%)', ascending=False)
+                        
+                        # Adiciona medalhas
+                        num_rows = len(df_top)
+                        medals = ["🥇", "🥈", "🥉"][:num_rows] + [""] * max(0, num_rows - 3)
+                        df_top.insert(0, "🏅", medals)
+                        
+                        # Mostra métricas do fundo
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            nav_per_share = calculate_nav_per_share()
+                            st.metric("📊 NAV por Share", f"€{nav_per_share:.4f}")
+                        with col2:
+                            total_shares = get_total_shares_in_circulation()
+                            st.metric("🔢 Total Shares", f"{total_shares:.2f}")
+                        with col3:
+                            fund_total = df_top['Valor (€)'].sum()
+                            st.metric("💰 NAV Total Fundo", f"€{fund_total:,.2f}")
+                        
+                        # Mostra tabela
+                        st.dataframe(
+                            df_top[['🏅', 'Utilizador', 'Shares', 'Propriedade (%)', 'Valor (€)']],
+                            use_container_width=True,
+                            hide_index=True,
+                            column_config={
+                                'Shares': st.column_config.NumberColumn(format="%.6f"),
+                                'Propriedade (%)': st.column_config.NumberColumn(format="%.2f%%"),
+                                'Valor (€)': st.column_config.NumberColumn(format="€%.2f")
+                            }
+                        )
+                        
+                        # Gráfico de pizza com % de shares
+                        if len(df_top) > 1:
+                            fig_pie = px.pie(
+                                df_top,
+                                names='Utilizador',
+                                values='Propriedade (%)',
+                                title='Distribuição de Propriedade do Fundo (%)',
+                                hover_data=['Valor (€)'],
+                            )
+                            fig_pie.update_traces(
+                                textposition='inside',
+                                textinfo='percent+label',
+                                hovertemplate='<b>%{label}</b><br>Propriedade: %{value:.2f}%<br>Valor: €%{customdata[0]:,.2f}<extra></extra>'
+                            )
+                            st.plotly_chart(fig_pie, use_container_width=True)
+                    else:
+                        st.info("ℹ️ Ainda não há utilizadores com shares no fundo.")
+                        
+                except Exception as e:
+                    st.warning(f"⚠️ Erro ao obter dados de shares: {str(e)}")
+                    import traceback
+                    st.code(traceback.format_exc())
             else:
-                st.info("ℹ️ Ainda não há dados suficientes para o ranking.")
+                # Fallback para sistema antigo (depósitos brutos)
+                st.info("⚠️ Sistema de shares não está configurado. A mostrar depósitos brutos.")
+                df_top = pd.read_sql("""
+                    SELECT 
+                        tu.username AS "Utilizador",
+                        COALESCE(SUM(COALESCE(tucm.credit, 0) - COALESCE(tucm.debit, 0)), 0) AS "Saldo Total (€)"
+                    FROM t_users tu
+                    LEFT JOIN t_user_capital_movements tucm ON tu.user_id = tucm.user_id
+                    WHERE tu.is_admin = FALSE
+                    GROUP BY tu.user_id, tu.username
+                    HAVING COALESCE(SUM(COALESCE(tucm.credit, 0) - COALESCE(tucm.debit, 0)), 0) > 0
+                    ORDER BY "Saldo Total (€)" DESC
+                    LIMIT 10
+                """, engine)
+                
+                if not df_top.empty:
+                    num_rows = len(df_top)
+                    medals = ["🥇", "🥈", "🥉"][:num_rows] + [""] * max(0, num_rows - 3)
+                    df_top.insert(0, "🏅", medals)
+                    st.dataframe(df_top, use_container_width=True)
+                    
+                    if len(df_top) > 1:
+                        fig_pie = px.pie(
+                            df_top,
+                            names='Utilizador',
+                            values='Saldo Total (€)',
+                            title='Distribuição de Capital por Utilizador'
+                        )
+                        st.plotly_chart(fig_pie, use_container_width=True)
+                else:
+                    st.info("ℹ️ Ainda não há dados suficientes para o ranking.")
         
     finally:
         if conn:

@@ -210,6 +210,21 @@ CREATE TABLE IF NOT EXISTS t_price_snapshots (
     UNIQUE(asset_id, snapshot_date)
 );
 
+-- Tabela de shares dos utilizadores (sistema de propriedade do fundo)
+CREATE TABLE IF NOT EXISTS t_user_shares (
+    share_id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES t_users(user_id),
+    movement_date TIMESTAMP WITH TIME ZONE NOT NULL,
+    movement_type VARCHAR(20) NOT NULL, -- 'deposit' ou 'withdrawal'
+    amount_eur NUMERIC(18, 2) NOT NULL,
+    nav_per_share NUMERIC(18, 6) NOT NULL, -- NAV por share no momento
+    shares_amount NUMERIC(18, 6) NOT NULL, -- Shares atribuídas (positivo) ou removidas (negativo)
+    total_shares_after NUMERIC(18, 6) NOT NULL, -- Total de shares do utilizador após esta operação
+    fund_nav NUMERIC(18, 2) NOT NULL, -- NAV total do fundo no momento
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    notes TEXT
+);
+
 -- ========================================
 -- ÍNDICES PARA PERFORMANCE
 -- ========================================
@@ -255,6 +270,19 @@ CREATE INDEX IF NOT EXISTS idx_transactions_executed_by ON t_transactions(execut
 -- Indexes for t_price_snapshots
 CREATE INDEX IF NOT EXISTS idx_price_snapshots_asset_date ON t_price_snapshots(asset_id, snapshot_date DESC);
 CREATE INDEX IF NOT EXISTS idx_price_snapshots_date ON t_price_snapshots(snapshot_date DESC);
+
+-- Indexes for t_user_shares
+CREATE INDEX IF NOT EXISTS idx_user_shares_user_date ON t_user_shares(user_id, movement_date DESC);
+CREATE INDEX IF NOT EXISTS idx_user_shares_date ON t_user_shares(movement_date DESC);
+
+-- View para facilitar consulta de shares atuais por utilizador
+CREATE OR REPLACE VIEW v_user_current_shares AS
+SELECT 
+    user_id,
+    SUM(shares_amount) as total_shares
+FROM t_user_shares
+GROUP BY user_id
+HAVING SUM(shares_amount) > 0;
 
 -- ========================================
 -- DADOS INICIAIS

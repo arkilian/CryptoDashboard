@@ -456,15 +456,36 @@ def _financial_data(conn, cursor):
             descricao_dep = st.text_input("Descrição do depósito", key="dep_desc")
             if st.button("Confirmar Depósito"):
                 try:
-                    # Inserir movimento para o user
-                    cursor.execute("""
-                        INSERT INTO t_user_capital_movements (user_id, credit, description, movement_date) 
-                        VALUES (%s, %s, %s, %s)
-                    """, (user_id, valor_dep, descricao_dep, movement_date))
+                    if valor_dep <= 0:
+                        st.warning("Informe um valor de depósito maior que zero.")
+                    else:
+                        # Inserir movimento para o user
+                        cursor.execute("""
+                            INSERT INTO t_user_capital_movements (user_id, credit, description, movement_date) 
+                            VALUES (%s, %s, %s, %s)
+                        """, (user_id, valor_dep, descricao_dep, movement_date))
 
-                    conn.commit()
-                    st.success("✅ Depósito registado com sucesso!")
-                    st.rerun()
+                        conn.commit()
+
+                        # Alocar shares com base no NAV do momento (NAV/share pré-depósito)
+                        try:
+                            from services.shares import allocate_shares_on_deposit
+                            # Converter movement_date (date) para datetime (meio-dia para consistência)
+                            movement_dt = datetime.datetime.combine(movement_date, datetime.time(12, 0, 0))
+                            share_info = allocate_shares_on_deposit(
+                                user_id=user_id,
+                                deposit_amount=float(valor_dep),
+                                movement_date=movement_dt,
+                                notes=f"Depósito: {descricao_dep}"
+                            )
+                            st.success(
+                                f"✅ Depósito registado e shares atribuídas: "
+                                f"{share_info['shares_allocated']:.6f} (NAV/share: €{share_info['nav_per_share']:.4f})"
+                            )
+                        except Exception as e:
+                            st.warning(f"Depósito registado, mas falhou alocação de shares: {e}")
+
+                        st.rerun()
                 except Exception as e:
                     conn.rollback()
                     st.error(f"❌ Erro ao registar depósito: {str(e)}")
@@ -475,15 +496,35 @@ def _financial_data(conn, cursor):
             descricao_lev = st.text_input("Descrição do levantamento", key="lev_desc")
             if st.button("Confirmar Levantamento"):
                 try:
-                    # Inserir movimento para o user
-                    cursor.execute("""
-                        INSERT INTO t_user_capital_movements (user_id, debit, description, movement_date) 
-                        VALUES (%s, %s, %s, %s)
-                    """, (user_id, valor_lev, descricao_lev, movement_date))
+                    if valor_lev <= 0:
+                        st.warning("Informe um valor de levantamento maior que zero.")
+                    else:
+                        # Inserir movimento para o user
+                        cursor.execute("""
+                            INSERT INTO t_user_capital_movements (user_id, debit, description, movement_date) 
+                            VALUES (%s, %s, %s, %s)
+                        """, (user_id, valor_lev, descricao_lev, movement_date))
 
-                    conn.commit()
-                    st.success("✅ Levantamento registado com sucesso!")
-                    st.rerun()
+                        conn.commit()
+
+                        # Remover (queimar) shares com base no NAV/share pré-levantamento
+                        try:
+                            from services.shares import burn_shares_on_withdrawal
+                            movement_dt = datetime.datetime.combine(movement_date, datetime.time(12, 0, 0))
+                            share_info = burn_shares_on_withdrawal(
+                                user_id=user_id,
+                                withdrawal_amount=float(valor_lev),
+                                movement_date=movement_dt,
+                                notes=f"Levantamento: {descricao_lev}"
+                            )
+                            st.success(
+                                f"✅ Levantamento registado e shares removidas: "
+                                f"{share_info['shares_burned']:.6f} (NAV/share: €{share_info['nav_per_share']:.4f})"
+                            )
+                        except Exception as e:
+                            st.warning(f"Levantamento registado, mas falhou atualização de shares: {e}")
+
+                        st.rerun()
                 except Exception as e:
                     conn.rollback()
                     st.error(f"❌ Erro ao registar levantamento: {str(e)}")

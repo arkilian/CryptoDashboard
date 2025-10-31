@@ -8,13 +8,16 @@ Este módulo permite:
 """
 import logging
 from datetime import date, datetime, timedelta
-from typing import Dict, List, Optional
+from typing import List, Dict, Optional
 import pandas as pd
 from sqlalchemy import text
 from database.connection import get_engine
 from services.coingecko import CoinGeckoService
 
 logger = logging.getLogger(__name__)
+
+# URL base da API CoinGecko
+BASE_URL = "https://api.coingecko.com/api/v3"
 
 
 def get_historical_price(asset_id: int, target_date: date) -> Optional[float]:
@@ -62,44 +65,56 @@ def get_historical_price(asset_id: int, target_date: date) -> Optional[float]:
     
     coingecko_id = df_asset.iloc[0]['coingecko_id']
     
-    # Buscar preço histórico do CoinGecko usando market_chart
+    # Buscar preço histórico do CoinGecko usando endpoint de histórico por data específica
     try:
-        cg_service = CoinGeckoService()
+        import requests
+        
         days_ago = (date.today() - target_date).days
         
         if days_ago < 0:
             logger.warning(f"Data futura solicitada: {target_date}")
             return None
         
-        # CoinGecko retorna dados para períodos específicos
+        # Para hoje, usar endpoint de preço atual
         if days_ago == 0:
-            period = "1"
-        elif days_ago <= 90:
-            period = str(days_ago + 1)
+            url = f"{BASE_URL}/simple/price"
+            params = {"ids": coingecko_id, "vs_currencies": "eur"}
+            
+            resp = requests.get(url, params=params, timeout=10)
+            if resp.ok:
+                data = resp.json()
+                price = data.get(coingecko_id, {}).get("eur")
+                if price:
+                    closest_price = float(price)
+                else:
+                    logger.warning(f"Preço atual não disponível para {coingecko_id}")
+                    return None
+            else:
+                logger.warning(f"Erro ao buscar preço atual: {resp.status_code}")
+                return None
         else:
-            # Para datas antigas, usar max
-            period = "max"
-        
-        data = cg_service.get_market_chart(coingecko_id, period=f"{period}d")
-        
-        if not data or 'prices' not in data:
-            logger.warning(f"Sem dados de preço para {coingecko_id} em {target_date}")
-            return None
-        
-        # Dados vêm como [[timestamp_ms, price], ...]
-        prices = data['prices']
-        
-        # Encontrar o preço mais próximo da data solicitada
-        target_timestamp = datetime.combine(target_date, datetime.min.time()).timestamp() * 1000
-        
-        closest_price = None
-        min_diff = float('inf')
-        
-        for ts, price in prices:
-            diff = abs(ts - target_timestamp)
-            if diff < min_diff:
-                min_diff = diff
-                closest_price = price
+            # Para datas históricas, usar endpoint /coins/{id}/history
+            # Formato da data: DD-MM-YYYY
+            date_str = target_date.strftime("%d-%m-%Y")
+            url = f"{BASE_URL}/coins/{coingecko_id}/history"
+            params = {"date": date_str, "localization": "false"}
+            
+            resp = requests.get(url, params=params, timeout=15)
+            if resp.ok:
+                data = resp.json()
+                # market_data contém os preços por moeda
+                market_data = data.get("market_data", {})
+                current_price = market_data.get("current_price", {})
+                price = current_price.get("eur")
+                
+                if price:
+                    closest_price = float(price)
+                else:
+                    logger.warning(f"Preço histórico não disponível para {coingecko_id} em {date_str}")
+                    return None
+            else:
+                logger.warning(f"Erro ao buscar preço histórico: {resp.status_code}")
+                return None
         
         if closest_price:
             # Guardar na BD para uso futuro

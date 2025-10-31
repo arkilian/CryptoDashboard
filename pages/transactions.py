@@ -72,6 +72,18 @@ def show():
             # Buscar exchanges disponíveis
             df_exchanges = pd.read_sql("SELECT exchange_id, name FROM t_exchanges ORDER BY name", engine)
             
+            # Data da transação (antes de tudo para estar disponível no botão)
+            transaction_date = st.date_input("Data da Transação", value=datetime.now().date(), key="tx_date_input")
+            
+            # Guardar data selecionada em session_state
+            prev_date = st.session_state.get("tx_target_date")
+            if transaction_date != prev_date:
+                st.session_state["tx_target_date"] = transaction_date
+                # Reset preço quando muda a data
+                st.session_state["tx_price"] = 0.0
+                st.session_state.pop("tx_market_price", None)
+                st.session_state.pop("tx_market_price_date", None)
+            
             col1, col2 = st.columns(2)
             
             with col1:
@@ -92,6 +104,7 @@ def show():
                 if prev_asset != asset_id:
                     st.session_state.pop("tx_price", None)
                     st.session_state.pop("tx_market_price", None)
+                    st.session_state.pop("tx_market_price_date", None)
                     st.session_state["tx_prev_asset"] = asset_id
                 
                 quantity = st.number_input(
@@ -121,33 +134,35 @@ def show():
                 with col_btn:
                     if st.button("🔄 Usar preço de mercado", use_container_width=True, key="btn_market_price"):
                         if asset_cg_id:
+                            # Buscar data da transação para obter preço histórico
+                            target_date = st.session_state.get("tx_target_date", datetime.now().date())
+                            
                             try:
-                                resp = requests.get(
-                                    "https://api.coingecko.com/api/v3/simple/price",
-                                    params={"ids": asset_cg_id, "vs_currencies": "eur"},
-                                    timeout=10,
-                                )
-                                if resp.ok:
-                                    data = resp.json()
-                                    price = float(data.get(asset_cg_id, {}).get("eur") or 0)
-                                    if price > 0:
-                                        st.session_state["tx_price"] = round(price, 6)
-                                        st.session_state["tx_market_price"] = price
-                                        st.rerun()
-                                    else:
-                                        st.warning("Preço de mercado não disponível para este ativo.")
+                                from services.snapshots import get_historical_price
+                                
+                                # Buscar preço histórico da data selecionada
+                                price = get_historical_price(int(asset_id), target_date)
+                                
+                                if price and price > 0:
+                                    st.session_state["tx_price"] = round(price, 6)
+                                    st.session_state["tx_market_price"] = price
+                                    st.session_state["tx_market_price_date"] = target_date
+                                    st.success(f"✅ Preço aplicado: €{price:,.6f} ({target_date})")
+                                    st.rerun()
                                 else:
-                                    st.warning("Falha ao obter preço do CoinGecko.")
+                                    st.warning(f"Preço de mercado não disponível para {target_date}.")
                             except Exception as e:
-                                st.warning(f"Não foi possível obter o preço de mercado: {e}")
+                                st.error(f"❌ Erro ao obter preço: {e}")
                         else:
                             st.info("Configure o CoinGecko ID do ativo em ⚙️ Configurações > 🪙 Ativos.")
                 
                 with col_info:
                     # Mostrar último preço de mercado (se disponível)
                     market_price = st.session_state.get("tx_market_price")
+                    market_date = st.session_state.get("tx_market_price_date")
                     if market_price:
-                        st.markdown(f"**💡 Último:**  \n€{market_price:,.6f}")
+                        date_str = f" ({market_date})" if market_date else ""
+                        st.markdown(f"**💡 Último:**  \n€{market_price:,.6f}{date_str}")
                     else:
                         st.markdown("**💡 Último:**  \n—")
                 
@@ -179,7 +194,6 @@ def show():
                 else:
                     st.caption(f"Valor recebido (após taxa): €{total_eur - fee_eur:,.2f}")
             
-            transaction_date = st.date_input("Data da Transação", value=datetime.now().date())
             notes = st.text_area("Notas/Observações", placeholder="Ex: Rebalanceamento mensal, aproveitamento de dip, etc.")
             
             if st.button("💾 Registar Transação", type="primary", use_container_width=True):

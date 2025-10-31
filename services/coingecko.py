@@ -205,11 +205,12 @@ class CoinGeckoService:
         self._price_cache[key] = (now, result)
         return result
 
-    def get_market_chart(self, symbol_or_id: str, period: str = "30d"):
+    def get_market_chart(self, symbol_or_id: str, period: str = "30d", vs_currency: str = "eur"):
         """Retorna os dados de market_chart para a moeda indicada.
 
         symbol_or_id: pode ser símbolo (BTC) ou id (bitcoin). Tentamos mapear se for símbolo.
         period: '24h', '7d', '30d', '90d', '1y', 'max'
+        vs_currency: moeda de referência (default: 'eur')
         """
         # Mapear período para parâmetro days
         mapping = {
@@ -232,7 +233,7 @@ class CoinGeckoService:
                 coin_id = mapped
 
         url = f"{BASE_URL}/coins/{coin_id}/market_chart"
-        params = {"vs_currency": "usd", "days": days}
+        params = {"vs_currency": vs_currency, "days": days}
         retries = 3
         backoff = 1.0
         for attempt in range(retries):

@@ -149,56 +149,212 @@ def show():
                 
                 st.markdown("---")
                 
-                # Gráfico de evolução do portfólio (simulado - para implementar com dados reais)
+                # Gráfico de evolução: Total Depositado vs Total Levantado (acumulado)
                 st.markdown("### 📊 Evolução do Portfólio")
-                st.info("ℹ️ Gráfico simulado - implementar integração com snapshots reais")
                 
-                # Dados simulados baseados no saldo atual
-                import numpy as np
-                saldo_atual = df_filtered['balance'].iloc[-1]
-                periods = min(6, len(df_filtered))
-                
-                if periods > 0:
-                    dates_sim = pd.date_range(start=start_date, end=end_date, periods=periods)
-                    valor_investido = np.linspace(0, saldo_atual, periods)
-                    # Simular valorização de 5-15%
-                    variacao = np.random.uniform(1.05, 1.15, periods)
-                    valor_atual = valor_investido * np.cumprod(variacao) / np.cumprod(variacao)[0]
-                    
-                    df_portfolio = pd.DataFrame({
-                        "data": dates_sim.to_numpy(),  # Converter para numpy array
-                        "valor_investido": valor_investido,
-                        "valor_atual": valor_atual
-                    })
-                    
-                    # Gráfico com duas linhas
-                    fig_portfolio = go.Figure()
-                    
-                    fig_portfolio.add_trace(go.Scatter(
-                        x=df_portfolio["data"],
-                        y=df_portfolio["valor_investido"],
-                        mode='lines+markers',
-                        name='Total Investido',
-                        line=dict(color='blue')
-                    ))
-                    
-                    fig_portfolio.add_trace(go.Scatter(
-                        x=df_portfolio["data"],
-                        y=df_portfolio["valor_atual"],
-                        mode='lines+markers',
-                        name='Valor Atual',
-                        line=dict(color='green')
-                    ))
-                    
-                    fig_portfolio.update_layout(
-                        title='Evolução do Portfólio (Simulado)',
-                        xaxis_title='Data',
-                        yaxis_title='EUR',
-                        legend=dict(x=0, y=1),
-                        hovermode='x unified'
+                # Buscar créditos e débitos por dia conforme o contexto (agregado ou utilizador específico)
+                if user_id is None and is_admin:
+                    df_cap = pd.read_sql(
+                        """
+                        SELECT tucm.movement_date::date AS date,
+                               COALESCE(SUM(COALESCE(tucm.credit,0)),0) AS total_credit,
+                               COALESCE(SUM(COALESCE(tucm.debit,0)),0)  AS total_debit
+                        FROM t_user_capital_movements tucm
+                        JOIN t_users tu ON tucm.user_id = tu.user_id
+                        WHERE tu.is_admin = FALSE
+                        GROUP BY tucm.movement_date::date
+                        ORDER BY tucm.movement_date
+                        """,
+                        engine,
                     )
-                    
-                    st.plotly_chart(fig_portfolio, use_container_width=True)
+                elif user_id:
+                    df_cap = pd.read_sql(
+                        """
+                        SELECT movement_date::date AS date,
+                               COALESCE(credit,0) AS total_credit,
+                               COALESCE(debit,0)  AS total_debit
+                        FROM t_user_capital_movements
+                        WHERE user_id = %s
+                        ORDER BY movement_date
+                        """,
+                        engine,
+                        params=(user_id,),
+                    )
+                else:
+                    df_cap = pd.DataFrame(columns=["date","total_credit","total_debit"])            
+
+                if df_cap.empty:
+                    st.info("ℹ️ Sem dados de depósitos/levantamentos para o período.")
+                else:
+                    # Filtra por intervalo selecionado
+                    df_cap = df_cap[(df_cap["date"] >= start_date) & (df_cap["date"] <= end_date)].copy()
+                    if df_cap.empty:
+                        st.info("ℹ️ Sem dados de depósitos/levantamentos no intervalo selecionado.")
+                    else:
+                        df_cap.sort_values("date", inplace=True)
+                        df_cap["depositado_acum"] = df_cap["total_credit"].cumsum()
+                        df_cap["levantado_acum"] = df_cap["total_debit"].cumsum()
+
+                        # Calcular Saldo Atual evolutivo (caixa + valor de mercado das posições ao longo do tempo)
+                        try:
+                            from services.snapshots import get_historical_prices_bulk
+                            
+                            # Buscar todas as transações até o período
+                            df_all_tx = pd.read_sql(
+                                """
+                                SELECT transaction_date::date AS date,
+                                       transaction_type,
+                                       t.asset_id,
+                                       a.symbol,
+                                       quantity,
+                                       total_eur,
+                                       fee_eur
+                                FROM t_transactions t
+                                JOIN t_assets a ON t.asset_id = a.asset_id
+                                WHERE transaction_date::date <= %s
+                                ORDER BY transaction_date
+                                """,
+                                engine,
+                                params=(end_date,)
+                            )
+                            
+                            # Buscar todos os movimentos de capital até o período
+                            if user_id is None and is_admin:
+                                df_all_cap = pd.read_sql(
+                                    """
+                                    SELECT movement_date::date AS date,
+                                           COALESCE(SUM(COALESCE(credit,0)),0) AS credit,
+                                           COALESCE(SUM(COALESCE(debit,0)),0) AS debit
+                                    FROM t_user_capital_movements tucm
+                                    JOIN t_users tu ON tucm.user_id = tu.user_id
+                                    WHERE tu.is_admin = FALSE AND movement_date::date <= %s
+                                    GROUP BY movement_date::date
+                                    ORDER BY movement_date
+                                    """,
+                                    engine,
+                                    params=(end_date,)
+                                )
+                            elif user_id:
+                                df_all_cap = pd.read_sql(
+                                    """
+                                    SELECT movement_date::date AS date,
+                                           COALESCE(credit,0) AS credit,
+                                           COALESCE(debit,0) AS debit
+                                    FROM t_user_capital_movements
+                                    WHERE user_id = %s AND movement_date::date <= %s
+                                    ORDER BY movement_date
+                                    """,
+                                    engine,
+                                    params=(user_id, end_date)
+                                )
+                            else:
+                                df_all_cap = pd.DataFrame(columns=["date","credit","debit"])
+                            
+                            # Criar array de datas para calcular evolução
+                            all_dates = sorted(set(df_cap["date"].tolist()))
+                            if not all_dates:
+                                raise ValueError("Sem datas para calcular evolução")
+                            
+                            saldo_evolution = []
+                            
+                            # Calcular saldo para cada data
+                            for calc_date in all_dates:
+                                # Caixa até esta data
+                                cap_until = df_all_cap[df_all_cap["date"] <= calc_date]
+                                cash = cap_until["credit"].sum() - cap_until["debit"].sum()
+                                
+                                tx_until = df_all_tx[df_all_tx["date"] <= calc_date]
+                                if not tx_until.empty:
+                                    spent = tx_until[tx_until["transaction_type"] == "buy"].apply(
+                                        lambda r: r["total_eur"] + r["fee_eur"], axis=1
+                                    ).sum()
+                                    received = tx_until[tx_until["transaction_type"] == "sell"].apply(
+                                        lambda r: r["total_eur"] - r["fee_eur"], axis=1
+                                    ).sum()
+                                    cash = cash - spent + received
+                                
+                                # Posições até esta data
+                                holdings_value = 0.0
+                                if not tx_until.empty:
+                                    holdings = {}
+                                    for _, row in tx_until.iterrows():
+                                        asset_id = int(row["asset_id"])
+                                        qty = row["quantity"]
+                                        if row["transaction_type"] == "buy":
+                                            holdings[asset_id] = holdings.get(asset_id, 0.0) + qty
+                                        else:
+                                            holdings[asset_id] = holdings.get(asset_id, 0.0) - qty
+                                    
+                                    # Buscar preços históricos para esta data
+                                    assets_held = [aid for aid, q in holdings.items() if q > 0]
+                                    if assets_held:
+                                        prices_dict = get_historical_prices_bulk(assets_held, calc_date)
+                                        for aid, qty in holdings.items():
+                                            if qty > 0 and aid in prices_dict:
+                                                holdings_value += qty * prices_dict[aid]
+                                
+                                saldo_evolution.append(cash + holdings_value)
+                            
+                            df_cap["saldo_atual"] = saldo_evolution
+                            saldo_atual_fundo = saldo_evolution[-1] if saldo_evolution else 0.0
+                            
+                            # Totais para métricas
+                            total_credit = df_all_cap["credit"].sum()
+                            total_debit = df_all_cap["debit"].sum()
+                            
+                        except Exception as e:
+                            st.warning(f"⚠️ Não foi possível calcular evolução do saldo: {e}")
+                            df_cap["saldo_atual"] = 0.0
+                            saldo_atual_fundo = None
+                            total_credit = 0.0
+                            total_debit = 0.0
+
+                        fig_portfolio = go.Figure()
+                        fig_portfolio.add_trace(go.Scatter(
+                            x=df_cap["date"],
+                            y=df_cap["depositado_acum"],
+                            mode='lines+markers',
+                            name='Total Depositado',
+                            line=dict(color='blue')
+                        ))
+                        fig_portfolio.add_trace(go.Scatter(
+                            x=df_cap["date"],
+                            y=df_cap["levantado_acum"],
+                            mode='lines+markers',
+                            name='Total Levantado',
+                            line=dict(color='red')
+                        ))
+                        # Linha do Saldo Atual (evolutiva)
+                        if "saldo_atual" in df_cap.columns and len(df_cap) > 0:
+                            fig_portfolio.add_trace(go.Scatter(
+                                x=df_cap["date"],
+                                y=df_cap["saldo_atual"],
+                                mode='lines+markers',
+                                name='Saldo Atual',
+                                line=dict(color='green', width=3)
+                            ))
+
+                        fig_portfolio.update_layout(
+                            title='Evolução do Portfólio',
+                            xaxis_title='Data',
+                            yaxis_title='EUR',
+                            legend=dict(x=0, y=1),
+                            hovermode='x unified'
+                        )
+                        st.plotly_chart(fig_portfolio, use_container_width=True)
+
+                # Mostrar métricas resumo com valores calculados
+                try:
+                    if 'saldo_atual_fundo' in locals() and saldo_atual_fundo is not None:
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("💰 Saldo Atual (Fundo)", f"{saldo_atual_fundo:,.2f} €")
+                        with col2:
+                            st.metric("📈 Total Depositado", f"{total_credit:,.2f} €")
+                        with col3:
+                            st.metric("📉 Total Levantado", f"{total_debit:,.2f} €")
+                except Exception as e:
+                    st.warning(f"Não foi possível apresentar métricas: {e}")
         
         # Seção de Top Holders (sempre visível para admin, independente da vista)
         if is_admin:

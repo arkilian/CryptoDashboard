@@ -199,6 +199,17 @@ CREATE TABLE IF NOT EXISTS t_snapshot_assets (
     value_eur NUMERIC(18, 6) GENERATED ALWAYS AS (amount * price_eur) STORED
 );
 
+-- Tabela de snapshots de preços históricos (para evitar latência do CoinGecko)
+CREATE TABLE IF NOT EXISTS t_price_snapshots (
+    snapshot_id SERIAL PRIMARY KEY,
+    asset_id INTEGER NOT NULL REFERENCES t_assets(asset_id),
+    snapshot_date DATE NOT NULL,
+    price_eur NUMERIC(18, 6) NOT NULL,
+    source TEXT DEFAULT 'coingecko',  -- origem do preço (coingecko, manual, etc)
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(asset_id, snapshot_date)
+);
+
 -- ========================================
 -- ÍNDICES PARA PERFORMANCE
 -- ========================================
@@ -240,6 +251,10 @@ CREATE INDEX IF NOT EXISTS idx_transactions_date ON t_transactions(transaction_d
 CREATE INDEX IF NOT EXISTS idx_transactions_asset ON t_transactions(asset_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_type ON t_transactions(transaction_type);
 CREATE INDEX IF NOT EXISTS idx_transactions_executed_by ON t_transactions(executed_by);
+
+-- Indexes for t_price_snapshots
+CREATE INDEX IF NOT EXISTS idx_price_snapshots_asset_date ON t_price_snapshots(asset_id, snapshot_date DESC);
+CREATE INDEX IF NOT EXISTS idx_price_snapshots_date ON t_price_snapshots(snapshot_date DESC);
 
 -- ========================================
 -- DADOS INICIAIS

@@ -34,6 +34,35 @@ def show():
     with tab1:
         st.subheader("Registar Nova Transação")
         
+        # Calcular saldo disponível em EUR (depósitos - levantamentos - compras + vendas)
+        df_cap = pd.read_sql(
+            """
+            SELECT 
+                COALESCE(SUM(COALESCE(tucm.credit,0)),0) AS total_credit,
+                COALESCE(SUM(COALESCE(tucm.debit,0)),0)  AS total_debit
+            FROM t_user_capital_movements tucm
+            JOIN t_users tu ON tucm.user_id = tu.user_id
+            WHERE tu.is_admin = FALSE
+            """,
+            engine,
+        )
+        df_tx = pd.read_sql(
+            """
+            SELECT 
+                COALESCE(SUM(CASE WHEN transaction_type = 'buy'  THEN total_eur + fee_eur ELSE 0 END),0) AS spent,
+                COALESCE(SUM(CASE WHEN transaction_type = 'sell' THEN total_eur - fee_eur ELSE 0 END),0) AS received
+            FROM t_transactions
+            """,
+            engine,
+        )
+        total_credit = float(df_cap.iloc[0]["total_credit"]) if not df_cap.empty else 0.0
+        total_debit = float(df_cap.iloc[0]["total_debit"]) if not df_cap.empty else 0.0
+        spent = float(df_tx.iloc[0]["spent"]) if not df_tx.empty else 0.0
+        received = float(df_tx.iloc[0]["received"]) if not df_tx.empty else 0.0
+        available_cash = total_credit - total_debit - spent + received
+
+        st.metric("💶 Saldo disponível (EUR)", f"€{available_cash:,.2f}")
+
         # Buscar ativos disponíveis (inclui coingecko_id para preço de mercado)
         df_assets = pd.read_sql("SELECT asset_id, symbol, name, coingecko_id FROM t_assets ORDER BY symbol", engine)
         
@@ -158,6 +187,8 @@ def show():
                     st.error("❌ A quantidade deve ser maior que zero!")
                 elif price_eur <= 0:
                     st.error("❌ O preço deve ser maior que zero!")
+                elif transaction_type == "buy" and (total_eur + fee_eur) > available_cash + 1e-9:
+                    st.error(f"❌ Saldo insuficiente. Disponível: €{available_cash:,.2f} | Necessário: €{(total_eur + fee_eur):,.2f}")
                 else:
                     try:
                         # Preparar parâmetros nomeados e tipos apropriados

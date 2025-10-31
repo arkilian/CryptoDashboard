@@ -12,7 +12,7 @@ def show_settings_page():
         st.stop()
 
     # Sub-menus
-    tab1, tab2, tab3 = st.tabs(["💰 Taxas", "🪙 Ativos", "🏦 Exchanges"])
+    tab1, tab2, tab3, tab4 = st.tabs(["💰 Taxas", "🪙 Ativos", "🏦 Exchanges", "📸 Snapshots"])
 
     # ========================================
     # TAB 1: TAXAS
@@ -219,3 +219,128 @@ def show_settings_page():
                     
                 except Exception as e:
                     st.error(f"❌ Erro ao adicionar exchange: {str(e)}")
+
+    # ========================================
+    # TAB 4: SNAPSHOTS DE PREÇOS
+    # ========================================
+    with tab4:
+        from datetime import date, timedelta
+        from services.snapshots import populate_snapshots_for_period, update_latest_prices
+        
+        st.subheader("📸 Gestão de Snapshots de Preços")
+        
+        st.markdown("""
+        Os snapshots de preços históricos permitem:
+        - Carregar gráficos de portfólio mais rapidamente
+        - Evitar chamadas repetidas ao CoinGecko
+        - Manter um histórico de preços local para análise
+        """)
+        
+        # Estatísticas dos snapshots
+        df_stats = pd.read_sql("""
+            SELECT 
+                COUNT(DISTINCT asset_id) as num_assets,
+                COUNT(*) as num_snapshots,
+                MIN(snapshot_date) as first_date,
+                MAX(snapshot_date) as last_date
+            FROM t_price_snapshots
+        """, engine)
+        
+        if not df_stats.empty and df_stats.iloc[0]['num_snapshots'] > 0:
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Ativos", df_stats.iloc[0]['num_assets'])
+            with col2:
+                st.metric("Total Snapshots", df_stats.iloc[0]['num_snapshots'])
+            with col3:
+                first = df_stats.iloc[0]['first_date']
+                st.metric("Primeira Data", first.strftime("%Y-%m-%d") if first else "—")
+            with col4:
+                last = df_stats.iloc[0]['last_date']
+                st.metric("Última Data", last.strftime("%Y-%m-%d") if last else "—")
+        else:
+            st.info("📭 Ainda não há snapshots de preços guardados.")
+        
+        st.divider()
+        
+        # Atualizar preços de hoje
+        st.subheader("🔄 Atualização Rápida")
+        
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            st.write("Atualiza os preços de **hoje** para todos os ativos configurados com CoinGecko ID.")
+        with col2:
+            if st.button("🔄 Atualizar Preços de Hoje", use_container_width=True, type="primary"):
+                with st.spinner("Atualizando preços..."):
+                    try:
+                        update_latest_prices()
+                        st.success("✅ Preços de hoje atualizados com sucesso!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Erro ao atualizar preços: {e}")
+        
+        st.divider()
+        
+        # Preencher período histórico
+        st.subheader("📅 Preencher Período Histórico")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            start_date_snap = st.date_input(
+                "Data Inicial",
+                value=date.today() - timedelta(days=30),
+                max_value=date.today(),
+                key="snap_start"
+            )
+        with col2:
+            end_date_snap = st.date_input(
+                "Data Final",
+                value=date.today(),
+                min_value=start_date_snap,
+                max_value=date.today(),
+                key="snap_end"
+            )
+        
+        days_diff = (end_date_snap - start_date_snap).days + 1
+        st.caption(f"⏱️ Serão processados {days_diff} dias de dados históricos.")
+        
+        if st.button("📸 Preencher Snapshots", use_container_width=True, type="secondary"):
+            if days_diff > 365:
+                st.warning("⚠️ Períodos muito longos podem demorar bastante tempo.")
+            
+            with st.spinner(f"Preenchendo snapshots de {start_date_snap} a {end_date_snap}..."):
+                try:
+                    populate_snapshots_for_period(start_date_snap, end_date_snap)
+                    st.success(f"✅ Snapshots preenchidos com sucesso para {days_diff} dias!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Erro ao preencher snapshots: {e}")
+        
+        st.divider()
+        
+        # Últimos snapshots
+        st.subheader("📋 Últimos Snapshots Guardados")
+        
+        df_recent = pd.read_sql("""
+            SELECT 
+                a.symbol as "Ativo",
+                ps.snapshot_date as "Data",
+                ps.price_eur as "Preço (€)",
+                ps.source as "Origem",
+                ps.created_at as "Guardado em"
+            FROM t_price_snapshots ps
+            JOIN t_assets a ON ps.asset_id = a.asset_id
+            ORDER BY ps.created_at DESC
+            LIMIT 20
+        """, engine)
+        
+        if not df_recent.empty:
+            df_recent["Data"] = pd.to_datetime(df_recent["Data"]).dt.strftime("%Y-%m-%d")
+            df_recent["Guardado em"] = pd.to_datetime(df_recent["Guardado em"]).dt.strftime("%Y-%m-%d %H:%M")
+            st.dataframe(df_recent, use_container_width=True, hide_index=True)
+        else:
+            st.info("📭 Ainda não há snapshots guardados.")
+
+
+if __name__ == "__main__":
+    show_settings_page()

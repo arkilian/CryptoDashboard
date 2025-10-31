@@ -1,92 +1,64 @@
 # 📊 Crypto Dashboard
 
-Um dashboard em Streamlit para gerir portfólio de criptomoedas como um fundo comunitário.
-Suporta multi-utilizador, com taxas configuráveis, snapshots de portfólio e histórico completo.
+Uma plataforma para gestão de um fundo comunitário de criptomoedas, com foco em transparência, controlo e simplicidade para administradores e investidores.
 
-## 🚀 Funcionalidades
+## 🚀 Funcionalidades (o que a plataforma faz)
 
-### 🔐 Autenticação e Gestão de Utilizadores
-- Login/registro seguro com hash + salt
-- Diferenciação Admin / User
-- Gestão de perfis e dados pessoais
+- 🔐 Autenticação e perfis
+   - Registo com username, email e password
+   - Perfis de utilizador com dados pessoais (nome, data de nascimento, género, morada)
+   - Perfis de acesso: Administrador e Utilizador
 
-### 💰 Portfolio e Investimentos
-- Visualização de saldo e movimentos
-- Gráficos de evolução do portfólio
-- Top holders e distribuição de ativos
-- Snapshots manuais de diferentes carteiras
+- 👥 Gestão de Utilizadores (Admin)
+   - Ver lista de utilizadores e respetivos contactos
+   - Adicionar/editar utilizadores (inclui definição/alteração de password)
+   - Secção de dados financeiros por utilizador (depósitos e levantamentos)
 
-### 💹 Cotações e Mercado
-- Integração com CoinGecko API
-- Preços em tempo real
-- Gráficos históricos
-- Widget de cotações ao vivo
+- 💰 Movimentos de Capital
+   - Registo de depósitos e levantamentos por utilizador
+   - Histórico completo e filtros por data
 
-### ⚙️ Administração
-- Configuração de taxas (manutenção e performance)
-- Histórico detalhado de taxas
-- Gestão de documentos e PDFs
-- Controle de acesso baseado em roles
+- 📸 Snapshots de Portfólio
+   - Registo manual de valores por carteira (Binance, Ledger, DeFi, Outros)
+   - Consulta de snapshots por intervalo de datas
 
-### 📜 Análise e Relatórios
-- Snapshots automáticos do portfólio
-- Histórico de movimentações
-- Gráficos de desempenho
-- Exportação de dados
+- 📈 Análise de Portfólio
+   - Evolução do saldo (gráfico e métricas)
+   - Ranking de Top Holders da comunidade
+   - Distribuição de capital por utilizador
 
-## 🛠️ Tecnologias
+- 📊 Cotações
+   - Integração com CoinGecko para consulta de preços e lista de ativos
 
-### Frontend
-- **Streamlit**: Interface principal
-- **Plotly**: Gráficos interativos
-- **Streamlit-AgGrid**: Tabelas avançadas
+- 📄 Documentos
+   - Visualização de PDFs (ex.: regulamento, estratégia, roadmap)
 
-### Backend
-- **PostgreSQL**: Base de dados
-- **Python 3.10+**: Linguagem principal
-- **psycopg2**: Conexão PostgreSQL
-- **python-dotenv**: Gestão de configuração
+## 💼 Modelo de Negócio (como funciona)
 
-### APIs e Integrações
-- **CoinGecko API**: Dados de mercado
-- **Python-Jose**: Tokens JWT
-- **Requests**: Chamadas HTTP
+O Crypto Dashboard foi desenhado para gerir um fundo comunitário de criptoativos, onde os participantes aportam capital e acompanham, em tempo real, a valorização e as operações do fundo.
 
-## ⚙️ Setup
+- Entradas e saídas de capital
+   - Os utilizadores podem aportar (depósitos) e resgatar (levantamentos) capital, com histórico totalmente auditável.
 
-1. Clone o repositório
-2. Crie um ambiente virtual: `python -m venv venv`
-3. Ative o ambiente:
-   - Windows: `.\.venv\Scripts\activate`
-   - Linux/Mac: `source venv/bin/activate`
-4. Instale as dependências: `pip install -r requirements.txt`
-5. Configure o `.env` baseado no `.env.example`
-6. Execute as migrações: `python database/run_migrations.py`
-7. Inicie o app: `streamlit run app.py`
+- Estrutura de taxas (configurável pelo Admin)
+   - Taxa de manutenção: aplicada periodicamente com taxa percentual e mínimo por utilizador.
+   - Taxa de performance: cobrada sobre lucros acima do High-Water Mark (HWM), garantindo que só há cobrança quando o valor líquido do utilizador supera o máximo histórico.
 
-## 📁 Estrutura do Projeto
+- Transparência e reporting
+   - Evolução de saldo por utilizador e no agregado (Fundo Comunitário)
+   - Ranking de Top Holders e distribuição do capital
+   - Snapshots de portfólio por carteiras e histórico de movimentos
 
-```
-CryptoDashboard/
-├── app.py              # Ponto de entrada
-├── config.py           # Configurações
-├── requirements.txt    # Dependências
-├── auth/              # Autenticação
-├── database/          # Banco de dados
-│   └── migrations/    # Scripts SQL
-├── pages/             # Páginas Streamlit
-├── services/          # Lógica de negócio
-├── utils/             # Utilitários
-└── docs/              # Documentação
-```
+- Governança e perfis
+   - Administradores gerem utilizadores, taxas, documentos e análises globais
+   - Utilizadores acompanham o próprio saldo, movimentos e documentos do fundo
 
-## 🧪 Testes
+> Nota: Esta plataforma é uma ferramenta de gestão e transparência. Não constitui aconselhamento financeiro. A utilização e parametrização das taxas é da responsabilidade dos administradores do fundo.
 
-Execute os testes com:
-```bash
-python -m unittest discover tests
-```
+## 📚 Documentação técnica
+
+A documentação técnica (setup, dependências, arquitetura, migrações, etc.) está disponível na Wiki do projeto.
 
 ## 📄 Licença
 
-MIT License - veja LICENSE para mais detalhes.
+GPL-3.0 License — consulte o ficheiro `LICENSE` para mais detalhes.

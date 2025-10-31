@@ -59,6 +59,3 @@ O Crypto Dashboard foi desenhado para gerir um fundo comunitário de criptoativo
 
 A documentação técnica (setup, dependências, arquitetura, migrações, etc.) está disponível na Wiki do projeto.
 
-## 📄 Licença
-
-GPL-3.0 License — consulte o ficheiro `LICENSE` para mais detalhes.

@@ -386,7 +386,17 @@ def _financial_data(conn, cursor):
     df_users = _get_users_list_cached()
     selecionado, user_id = _create_user_selector(df_users, "🔍 Escolhe um utilizador")
 
-    if user_id in [1, 2]:
+    # Verifica se o utilizador selecionado é admin (sem IDs hardcoded)
+    is_selected_admin = False
+    if user_id is not None:
+        try:
+            cursor.execute("SELECT is_admin FROM t_users WHERE user_id = %s", (user_id,))
+            row = cursor.fetchone()
+            is_selected_admin = bool(row[0]) if row else False
+        except Exception:
+            is_selected_admin = False
+
+    if is_selected_admin:
         st.warning("⚠️ Este utilizador é um administrador. Não é permitido editar transações.")
         
         # Mostrar resumo de todos os utilizadores
@@ -396,10 +406,10 @@ def _financial_data(conn, cursor):
         engine = get_engine()
         df_totals = pd.read_sql("""
             SELECT 
-                COUNT(DISTINCT user_id) as total_users,
-                COALESCE(SUM(credit), 0) as total_credits,
-                COALESCE(SUM(debit), 0) as total_debits,
-                COALESCE(SUM(credit) - SUM(debit), 0) as balance
+                COUNT(DISTINCT tu.user_id) as total_users,
+                COALESCE(SUM(tucm.credit), 0) as total_credits,
+                COALESCE(SUM(tucm.debit), 0) as total_debits,
+                COALESCE(SUM(tucm.credit) - SUM(tucm.debit), 0) as balance
             FROM t_user_capital_movements tucm
             JOIN t_users tu ON tucm.user_id = tu.user_id
             WHERE tu.is_admin = FALSE

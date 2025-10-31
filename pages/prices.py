@@ -2,16 +2,34 @@ import streamlit as st
 import streamlit.components.v1 as components
 from services.coingecko import CoinGeckoService
 from auth.session_manager import require_auth
-from config import WATCHED_COINS
+from database.connection import get_engine
+import pandas as pd
 
 @require_auth
 def show():
     st.title("📊 Cotações")
     
+    # Buscar ativos da base de dados
+    engine = get_engine()
+    df_assets = pd.read_sql("""
+        SELECT symbol, name, coingecko_id 
+        FROM t_assets 
+        WHERE coingecko_id IS NOT NULL AND coingecko_id != ''
+        ORDER BY symbol
+    """, engine)
+    
+    if df_assets.empty:
+        st.warning("⚠️ Nenhum ativo configurado com CoinGecko ID. Adicione ativos na página de Configurações.")
+        return
+    
+    # Extrair lista de CoinGecko IDs e símbolos
+    watched_coins = df_assets['coingecko_id'].tolist()
+    symbol_map = dict(zip(df_assets['coingecko_id'], df_assets['symbol']))
+    
     coingecko = CoinGeckoService()
     
     # Widget CoinGecko no topo
-    coin_ids_str = ",".join(WATCHED_COINS)
+    coin_ids_str = ",".join(watched_coins)
     html_code = f'''
     <div style="margin-bottom: 20px;">
         <script src="https://widgets.coingecko.com/gecko-coin-price-marquee-widget.js"></script>
@@ -51,19 +69,36 @@ def show():
         
         with tab1:
             # Obter preços em EUR e USD
-            prices = coingecko.get_prices(WATCHED_COINS, ['eur', 'usd'])
+            prices = coingecko.get_prices(watched_coins, ['eur', 'usd'])
             if prices:
-                st.success("✅ Preços atualizados com sucesso!")
-                st.json(prices)
+                st.success(f"✅ Preços atualizados para {len(prices)} ativos!")
+                
+                # Criar tabela formatada com símbolos
+                price_data = []
+                for coin_id, price_info in prices.items():
+                    symbol = symbol_map.get(coin_id, coin_id.upper())
+                    price_data.append({
+                        "Símbolo": symbol,
+                        "Nome": coin_id.replace('-', ' ').title(),
+                        "EUR": f"€{price_info.get('eur', 0):,.4f}" if price_info.get('eur') else "N/A",
+                        "USD": f"${price_info.get('usd', 0):,.4f}" if price_info.get('usd') else "N/A"
+                    })
+                
+                df_prices = pd.DataFrame(price_data)
+                st.dataframe(df_prices, use_container_width=True, hide_index=True)
             else:
                 st.error("❌ Erro ao obter preços do CoinGecko")
         
         with tab2:
             # Seletor de moeda para gráfico
-            selected_coin = st.selectbox(
+            coin_options = {f"{symbol_map.get(cid, cid.upper())} - {cid.replace('-', ' ').title()}": cid 
+                          for cid in watched_coins}
+            
+            selected_display = st.selectbox(
                 "Escolha uma moeda para ver o gráfico", 
-                WATCHED_COINS
+                list(coin_options.keys())
             )
+            selected_coin = coin_options[selected_display]
             
             # Seletor de período
             period = st.selectbox(
@@ -87,7 +122,7 @@ def show():
                     ))
                     
                     fig.update_layout(
-                        title=f'Preço de {selected_coin.upper()}',
+                        title=f'Preço de {symbol_map.get(selected_coin, selected_coin.upper())} ({selected_coin})',
                         xaxis_title='Data',
                         yaxis_title='Preço (USD)'
                     )
@@ -111,13 +146,26 @@ def show():
     
     # Adicionar informações sobre as moedas
     with st.expander("ℹ️ Sobre as moedas listadas"):
-        st.markdown("""
-        Esta lista inclui:
-        - **Bitcoin (BTC)**: A primeira e mais conhecida criptomoeda
-        - **Cardano (ADA)**: Plataforma blockchain proof-of-stake
-        - **Solana (SOL)**: Blockchain de alta performance
-        - **Sui (SUI)**: Nova plataforma blockchain
-        - **Tokens DeFi**: Vários tokens do ecossistema Cardano
+        st.markdown(f"""
+        Esta lista contém **{len(watched_coins)} ativos** configurados no sistema.
+        
+        Os ativos são geridos na página **⚙️ Configurações > 🪙 Ativos**.
+        
+        Para cada ativo é necessário:
+        - **Símbolo**: Código curto (ex: BTC, ADA)
+        - **Nome**: Nome completo do ativo
+        - **CoinGecko ID**: ID usado pela API do CoinGecko para obter cotações
         
         Os preços são atualizados em tempo real via API do CoinGecko.
         """)
+        
+        # Mostrar tabela de ativos configurados
+        st.dataframe(
+            df_assets.rename(columns={
+                "symbol": "Símbolo",
+                "name": "Nome",
+                "coingecko_id": "CoinGecko ID"
+            }),
+            use_container_width=True,
+            hide_index=True
+        )

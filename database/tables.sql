@@ -139,6 +139,22 @@ CREATE TABLE IF NOT EXISTS t_user_capital_movements (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Portfolio transactions (admin buy/sell operations)
+CREATE TABLE IF NOT EXISTS t_transactions (
+    transaction_id SERIAL PRIMARY KEY,
+    transaction_type TEXT CHECK (transaction_type IN ('buy', 'sell')) NOT NULL,
+    asset_id INT REFERENCES t_assets(asset_id) NOT NULL,
+    quantity NUMERIC(36,8) NOT NULL,
+    price_eur NUMERIC(18,6) NOT NULL,
+    total_eur NUMERIC(18,2) NOT NULL,
+    fee_eur NUMERIC(18,2) DEFAULT 0,
+    exchange_id INT REFERENCES t_exchanges(exchange_id),
+    transaction_date TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    executed_by INT REFERENCES t_users(user_id),
+    notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- ========================================
 -- TABELAS DE EXCHANGES E ATIVOS
 -- ========================================
@@ -154,6 +170,7 @@ CREATE TABLE IF NOT EXISTS t_assets (
     symbol TEXT NOT NULL UNIQUE,     -- Ex: BTC, ADA, DJED
     name TEXT,
     chain TEXT,                      -- Ex: Bitcoin, Cardano, Solana
+    coingecko_id TEXT,               -- ID do ativo no CoinGecko (ex: bitcoin, cardano)
     is_stablecoin BOOLEAN DEFAULT FALSE
 );
 
@@ -218,6 +235,12 @@ CREATE INDEX IF NOT EXISTS idx_user_profile_user_id ON t_user_profile(user_id);
 CREATE INDEX IF NOT EXISTS idx_capital_movements_user_id ON t_user_capital_movements(user_id);
 CREATE INDEX IF NOT EXISTS idx_capital_movements_date ON t_user_capital_movements(movement_date);
 
+-- Indexes for t_transactions
+CREATE INDEX IF NOT EXISTS idx_transactions_date ON t_transactions(transaction_date DESC);
+CREATE INDEX IF NOT EXISTS idx_transactions_asset ON t_transactions(asset_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_type ON t_transactions(transaction_type);
+CREATE INDEX IF NOT EXISTS idx_transactions_executed_by ON t_transactions(executed_by);
+
 -- ========================================
 -- DADOS INICIAIS
 -- ========================================
@@ -241,4 +264,26 @@ ON CONFLICT DO NOTHING;
 INSERT INTO t_users (username, password_hash, salt, is_admin)
 VALUES ('admin', '$2b$12$oMxa6Y.vTnhWFrDQGQxmveSXab5FeKihuoLSb3W0FdnkPJaV9HFoS', '', TRUE)
 ON CONFLICT (username) DO NOTHING;
+
+-- Inserir exchanges comuns
+INSERT INTO t_exchanges (name, category) VALUES 
+    ('Binance', 'CEX'),
+    ('Kraken', 'CEX'),
+    ('Coinbase', 'CEX'),
+    ('Ledger', 'Wallet'),
+    ('Minswap', 'DeFi'),
+    ('SundaeSwap', 'DeFi')
+ON CONFLICT DO NOTHING;
+
+-- Inserir ativos comuns
+INSERT INTO t_assets (symbol, name, chain, coingecko_id, is_stablecoin) VALUES 
+    ('BTC', 'Bitcoin', 'Bitcoin', 'bitcoin', FALSE),
+    ('ETH', 'Ethereum', 'Ethereum', 'ethereum', FALSE),
+    ('ADA', 'Cardano', 'Cardano', 'cardano', FALSE),
+    ('SOL', 'Solana', 'Solana', 'solana', FALSE),
+    ('USDT', 'Tether', 'Multiple', 'tether', TRUE),
+    ('USDC', 'USD Coin', 'Multiple', 'usd-coin', TRUE),
+    ('DJED', 'Djed', 'Cardano', 'djed', TRUE),
+    ('SHEN', 'Shen', 'Cardano', 'shen', FALSE)
+ON CONFLICT (symbol) DO NOTHING;
 

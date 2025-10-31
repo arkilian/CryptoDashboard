@@ -8,6 +8,7 @@ from pages.prices import show as show_prices_page
 from pages.snapshots import show as show_snapshots_page
 from pages.documents import show as show_documents_page
 from pages.users import show as show_users_page
+from pages.transactions import show as show_transactions_page
 
 def main():
     st.set_page_config(page_title="Crypto Dashboard", page_icon="🔒", layout="wide")
@@ -67,6 +68,7 @@ def main():
     # Opções adicionais para admins
     if is_admin:
         menu_options.insert(0, "👤 Utilizadores")  # Adiciona no topo
+        menu_options.insert(1, "💰 Transações")  # Adiciona depois de Utilizadores
         menu_options.insert(-1, "⚙️ Configurações")
     
     menu_options.append("🚪 Sair")
@@ -75,6 +77,8 @@ def main():
 
     if menu == "👤 Utilizadores" and is_admin:
         show_users_page()
+    elif menu == "💰 Transações" and is_admin:
+        show_transactions_page()
     elif menu == "📊 Análise de Portfólio":
         show_portfolio_analysis_page()
     elif menu == "📈 Portfólio":

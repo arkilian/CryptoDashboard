@@ -125,30 +125,6 @@ def show():
             if df_filtered.empty:
                 st.warning("⚠️ Não há dados para o período selecionado.")
             else:
-                # Gráfico de evolução do saldo
-                fig_balance = px.line(
-                    df_filtered,
-                    x="date",
-                    y="balance",
-                    title="📈 Evolução do Saldo",
-                    labels={"date": "Data", "balance": "Saldo (€)"}
-                )
-                fig_balance.update_traces(line_color='#00cc96')
-                st.plotly_chart(fig_balance, use_container_width=True)
-                
-                # Métricas resumo
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("💰 Saldo Atual", f"{df_filtered['balance'].iloc[-1]:.2f} €")
-                with col2:
-                    total_credits = df_filtered[df_filtered['net_movement'] > 0]['net_movement'].sum()
-                    st.metric("📈 Total Depositado", f"{total_credits:.2f} €")
-                with col3:
-                    total_debits = abs(df_filtered[df_filtered['net_movement'] < 0]['net_movement'].sum())
-                    st.metric("📉 Total Levantado", f"{total_debits:.2f} €")
-                
-                st.markdown("---")
-                
                 # Gráfico de evolução: Total Depositado vs Total Levantado (acumulado)
                 st.markdown("### 📊 Evolução do Portfólio")
                 

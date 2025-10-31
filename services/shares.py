@@ -55,13 +55,16 @@ def calculate_fund_nav() -> float:
     Returns:
         float: NAV total do fundo em EUR
     """
-    # 1. Calcular caixa disponível (deposits - withdrawals - buys + sells)
+    # 1. Calcular caixa disponível (apenas utilizadores não-admin):
+    # caixa = depósitos - levantamentos - gasto em compras + recebido em vendas
     query_cash = """
         WITH capital AS (
             SELECT 
-                COALESCE(SUM(COALESCE(credit, 0)), 0) AS total_deposits,
-                COALESCE(SUM(COALESCE(debit, 0)), 0)  AS total_withdrawals
-            FROM t_user_capital_movements
+                COALESCE(SUM(COALESCE(uc.credit, 0)), 0) AS total_deposits,
+                COALESCE(SUM(COALESCE(uc.debit, 0)), 0)  AS total_withdrawals
+            FROM t_user_capital_movements uc
+            JOIN t_users u ON u.user_id = uc.user_id
+            WHERE u.is_admin = FALSE
         ),
         trades AS (
             SELECT 
@@ -87,20 +90,20 @@ def calculate_fund_nav() -> float:
         GROUP BY a.asset_id, a.symbol
         HAVING SUM(CASE WHEN t.transaction_type = 'buy' THEN t.quantity ELSE -t.quantity END) > 0;
     """
-    
+
     holdings = _execute_query(query_holdings)
     crypto_value = 0.0
-    
+
     if holdings:
+        # Buscar preços em massa para reduzir falhas e latência
+        symbols = [row['symbol'] for row in holdings]
+        price_map = get_price_by_symbol(symbols, vs_currency='eur') or {}
         for row in holdings:
             symbol = row['symbol']
             quantity = float(row['total_quantity'])
-            prices = get_price_by_symbol([symbol])
-            current_price = None
-            if isinstance(prices, dict):
-                current_price = prices.get(symbol)
-            if current_price:
-                crypto_value += quantity * float(current_price)
+            price = price_map.get(symbol)
+            if price:
+                crypto_value += quantity * float(price)
     
     total_nav = cash_balance + crypto_value
     return total_nav

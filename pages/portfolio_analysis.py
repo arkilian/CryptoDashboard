@@ -509,7 +509,7 @@ def show():
             
             if shares_table_exists:
                 # Usar sistema de shares (NAV-based ownership)
-                from services.shares import get_all_users_ownership, calculate_nav_per_share, get_total_shares_in_circulation
+                from services.shares import get_all_users_ownership, calculate_nav_per_share, get_total_shares_in_circulation, calculate_fund_nav
                 
                 try:
                     ownership_data = get_all_users_ownership()
@@ -541,7 +541,8 @@ def show():
                             total_shares = get_total_shares_in_circulation()
                             st.metric("🔢 Total Shares", f"{total_shares:.2f}")
                         with col3:
-                            fund_total = df_top['Valor (€)'].sum()
+                            # Mostrar NAV total do fundo calculado diretamente (caixa + cripto)
+                            fund_total = calculate_fund_nav()
                             st.metric("💰 NAV Total Fundo", f"€{fund_total:,.2f}")
                         
                         # Mostra tabela

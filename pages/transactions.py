@@ -74,10 +74,22 @@ def show():
                 )
             
             with col2:
-                # Preço de mercado (opcional via CoinGecko)
-                col_price_btn, col_price_field = st.columns([1, 1])
-
-                with col_price_btn:
+                # Campo de preço
+                price_eur = st.number_input(
+                    "Preço Unitário (€)",
+                    min_value=0.0,
+                    value=float(st.session_state.get("tx_price", 0.0)),
+                    step=0.000001,
+                    format="%.6f",
+                    key="tx_price_input",
+                )
+                # manter sincronizado com session_state
+                st.session_state["tx_price"] = price_eur
+                
+                # Botão e último preço lado a lado
+                col_btn, col_info = st.columns([1, 1])
+                
+                with col_btn:
                     if st.button("🔄 Usar preço de mercado", use_container_width=True, key="btn_market_price"):
                         if asset_cg_id:
                             try:
@@ -92,7 +104,7 @@ def show():
                                     if price > 0:
                                         st.session_state["tx_price"] = round(price, 6)
                                         st.session_state["tx_market_price"] = price
-                                        st.success(f"Preço de mercado aplicado: €{price:,.6f}")
+                                        st.rerun()
                                     else:
                                         st.warning("Preço de mercado não disponível para este ativo.")
                                 else:
@@ -101,23 +113,14 @@ def show():
                                 st.warning(f"Não foi possível obter o preço de mercado: {e}")
                         else:
                             st.info("Configure o CoinGecko ID do ativo em ⚙️ Configurações > 🪙 Ativos.")
-
-                with col_price_field:
-                    price_eur = st.number_input(
-                        "Preço Unitário (€)",
-                        min_value=0.0,
-                        value=float(st.session_state.get("tx_price", 0.0)),
-                        step=0.000001,
-                        format="%.6f",
-                        key="tx_price_input",
-                    )
-                    # manter sincronizado com session_state
-                    st.session_state["tx_price"] = price_eur
-
-                # Mostrar último preço de mercado (se disponível)
-                market_price = st.session_state.get("tx_market_price")
-                if market_price:
-                    st.caption(f"Último preço de mercado: €{market_price:,.6f}")
+                
+                with col_info:
+                    # Mostrar último preço de mercado (se disponível)
+                    market_price = st.session_state.get("tx_market_price")
+                    if market_price:
+                        st.markdown(f"**💡 Último:**  \n€{market_price:,.6f}")
+                    else:
+                        st.markdown("**💡 Último:**  \n—")
                 
                 if not df_exchanges.empty:
                     exchange_options = {row['name']: row['exchange_id'] 

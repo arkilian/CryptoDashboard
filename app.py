@@ -2,6 +2,7 @@ import streamlit as st
 from auth.login import show_login_page
 from auth.register import show_register_page
 from pages.portfolio import show_portfolio_page
+from pages.portfolio_analysis import show as show_portfolio_analysis_page
 from pages.settings import show_settings_page
 from pages.prices import show as show_prices_page
 from pages.snapshots import show as show_snapshots_page
@@ -56,6 +57,7 @@ def main():
 
     # Menu comum para todos os usuários
     menu_options = [
+        "📊 Análise de Portfólio",
         "📈 Portfólio",
         "💰 Cotações",
         "📸 Snapshots",
@@ -73,6 +75,8 @@ def main():
 
     if menu == "👤 Utilizadores" and is_admin:
         show_users_page()
+    elif menu == "📊 Análise de Portfólio":
+        show_portfolio_analysis_page()
     elif menu == "📈 Portfólio":
         show_portfolio_page()
     elif menu == "💰 Cotações":

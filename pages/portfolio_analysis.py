@@ -7,6 +7,36 @@ from database.connection import get_connection, return_connection, get_engine
 from auth.session_manager import require_auth
 
 
+def _calculate_holdings_vectorized(df_tx):
+    """Calculate holdings using vectorized operations instead of iterrows.
+    
+    Args:
+        df_tx: DataFrame with columns: symbol, quantity, transaction_type
+        
+    Returns:
+        dict: {symbol: net_quantity}
+    """
+    if df_tx.empty:
+        return {}
+    
+    # Create a copy to avoid modifying original
+    df = df_tx.copy()
+    
+    # Use numpy.where for fully vectorized operation (faster than apply)
+    import numpy as np
+    df['signed_qty'] = np.where(
+        df['transaction_type'] == 'buy',
+        df['quantity'],
+        -df['quantity']
+    )
+    
+    # Group by symbol and sum quantities
+    holdings = df.groupby('symbol')['signed_qty'].sum().to_dict()
+    
+    # Filter out zero or negative holdings
+    return {sym: qty for sym, qty in holdings.items() if qty > 0}
+
+
 @require_auth
 def show():
     """
@@ -26,14 +56,34 @@ def show():
         
         if is_admin:
             # Admin pode ver "Todos" (fundo comunitário) ou utilizador individual
-            df_users = pd.read_sql(
-                "SELECT tu.user_id, tu.username, tup.email FROM t_users tu LEFT JOIN t_user_profile tup ON tu.user_id = tup.user_id ORDER BY tu.user_id",
-                engine
-            )
+            # Cache user list to avoid redundant queries
+            cache_key = "portfolio_analysis_users"
+            cache_time_key = "portfolio_analysis_users_time"
+            
+            import time
+            current_time = time.time()
+            
+            # Check if cache is valid (30 seconds TTL)
+            if (cache_key in st.session_state and 
+                cache_time_key in st.session_state and
+                current_time - st.session_state[cache_time_key] < 30):
+                df_users = st.session_state[cache_key]
+            else:
+                df_users = pd.read_sql(
+                    "SELECT tu.user_id, tu.username, tup.email FROM t_users tu LEFT JOIN t_user_profile tup ON tu.user_id = tup.user_id ORDER BY tu.user_id",
+                    engine
+                )
+                st.session_state[cache_key] = df_users
+                st.session_state[cache_time_key] = current_time
             
             # Adicionar opção "Todos (Fundo Comunitário)" no início
             opcoes = ["💰 Todos (Fundo Comunitário)"]
-            opcoes += [f"{row['username']} ({row['email'] or 'sem email'})" for _, row in df_users.iterrows()]
+            # Use list comprehension with apply for better performance
+            user_options = df_users.apply(
+                lambda row: f"{row['username']} ({row['email'] or 'sem email'})", 
+                axis=1
+            ).tolist()
+            opcoes += user_options
             
             # Selectbox com pesquisa
             selecionado = st.selectbox("🔍 Escolhe uma vista", opcoes)
@@ -43,14 +93,12 @@ def show():
                 user_id = None  # None = todos os utilizadores
                 user_name = "Fundo Comunitário"
             else:
-                # Encontrar ID do utilizador selecionado
-                user_id = None
-                user_name = None
-                for idx, row in df_users.iterrows():
-                    if selecionado == f"{row['username']} ({row['email'] or 'sem email'})":
-                        user_id = row['user_id']
-                        user_name = row['username']
-                        break
+                # Create lookup dictionary for efficient user ID retrieval
+                user_lookup = dict(zip(user_options, df_users['user_id']))
+                user_name_lookup = dict(zip(user_options, df_users['username']))
+                
+                user_id = user_lookup.get(selecionado)
+                user_name = user_name_lookup.get(selecionado)
         else:
             # Utilizador normal só vê o próprio portfólio
             user_id = st.session_state.get("user_id")
@@ -265,15 +313,22 @@ def show():
                                 progress_bar = st.progress(0.0)
                                 info_text = st.empty()
                                 
+                                # Batch process dates in groups to reduce UI updates
+                                # Update UI ~20 times total for optimal responsiveness
+                                # (More frequent = slower, less frequent = feels unresponsive)
+                                batch_size = max(1, total_dates // 20)
+                                
                                 for idx, calc_date in enumerate(all_dates):
-                                    progress_text.text(f"🔄 A carregar preços históricos... {idx+1}/{total_dates} datas")
-                                    progress_bar.progress((idx + 1) / total_dates)
+                                    # Only update UI every batch_size iterations
+                                    if idx % batch_size == 0 or idx == total_dates - 1:
+                                        progress_text.text(f"🔄 A carregar preços históricos... {idx+1}/{total_dates} datas")
+                                        progress_bar.progress((idx + 1) / total_dates)
                                     
                                     prices = get_historical_prices_by_symbol(unique_symbols, calc_date)
                                     prices_cache[calc_date] = prices
                                     
-                                    # Informar se buscou da BD ou API
-                                    if prices:
+                                    # Informar se buscou da BD ou API (less frequent updates)
+                                    if idx % batch_size == 0 and prices:
                                         info_text.text(f"✅ {calc_date}: {len(prices)} preços carregados (BD local + CoinGecko se necessário)")
                                 
                                 # Limpar mensagens de progresso
@@ -302,21 +357,15 @@ def show():
                                 # Posições até esta data valoradas com preços DESSA DATA (snapshots)
                                 holdings_value = 0.0
                                 if not tx_until.empty:
-                                    holdings = {}
-                                    for _, row in tx_until.iterrows():
-                                        sym = row["symbol"]
-                                        qty = row["quantity"]
-                                        if row["transaction_type"] == "buy":
-                                            holdings[sym] = holdings.get(sym, 0.0) + qty
-                                        else:
-                                            holdings[sym] = holdings.get(sym, 0.0) - qty
+                                    # Use vectorized function to calculate holdings efficiently
+                                    holdings = _calculate_holdings_vectorized(tx_until)
                                     
                                     # Usar preços do cache (já buscados)
                                     historical_prices = prices_cache.get(calc_date, {})
                                     
                                     # Valorizar com preços DA DATA calc_date
                                     for sym, qty in holdings.items():
-                                        if qty > 0 and sym in historical_prices and historical_prices[sym]:
+                                        if sym in historical_prices and historical_prices[sym]:
                                             holdings_value += qty * float(historical_prices[sym])
                                 
                                 saldo_evolution.append(cash + holdings_value)
@@ -408,26 +457,19 @@ def show():
                         # Calcular holdings com preços de HOJE
                         crypto_holdings = []
                         if 'df_all_tx' in locals() and not df_all_tx.empty:
-                            holdings_by_symbol = {}
-                            for _, row in df_all_tx.iterrows():
-                                sym = row["symbol"]
-                                qty = row["quantity"]
-                                if row["transaction_type"] == "buy":
-                                    holdings_by_symbol[sym] = holdings_by_symbol.get(sym, 0.0) + qty
-                                else:
-                                    holdings_by_symbol[sym] = holdings_by_symbol.get(sym, 0.0) - qty
+                            # Use vectorized function to calculate holdings efficiently
+                            holdings_by_symbol = _calculate_holdings_vectorized(df_all_tx)
                             
                             for sym, qty in holdings_by_symbol.items():
-                                if qty > 0:
-                                    price_today = today_prices.get(sym, 0)
-                                    if price_today:
-                                        value_eur = qty * float(price_today)
-                                        crypto_holdings.append({
-                                            "Ativo": sym,
-                                            "Quantidade": qty,
-                                            "Preço Atual (€)": float(price_today),
-                                            "Valor Total (€)": value_eur
-                                        })
+                                price_today = today_prices.get(sym, 0)
+                                if price_today:
+                                    value_eur = qty * float(price_today)
+                                    crypto_holdings.append({
+                                        "Ativo": sym,
+                                        "Quantidade": qty,
+                                        "Preço Atual (€)": float(price_today),
+                                        "Valor Total (€)": value_eur
+                                    })
                         
                         # SALDO ATUAL REAL = caixa + cripto a preços de HOJE
                         crypto_value_today = sum([h["Valor Total (€)"] for h in crypto_holdings])

@@ -11,6 +11,7 @@ from pages.users import show as show_users_page
 from pages.transactions import show as show_transactions_page
 from css.sidebar import get_sidebar_style
 from css.tables import get_tables_style
+from css.base import get_app_base_style
 
 def main():
     st.set_page_config(page_title="Crypto Dashboard", page_icon="🔒", layout="wide")
@@ -56,7 +57,8 @@ def main():
     # Se está aqui, usuário autenticado
     #st.write(st.session_state)
     
-    # Aplicar CSS customizado da sidebar e tabelas
+    # Aplicar CSS global (fundo consistente), sidebar e tabelas
+    st.markdown(get_app_base_style(), unsafe_allow_html=True)
     st.markdown(get_sidebar_style(), unsafe_allow_html=True)
     st.markdown(get_tables_style(), unsafe_allow_html=True)
     

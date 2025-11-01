@@ -149,6 +149,7 @@ CREATE TABLE IF NOT EXISTS t_transactions (
     total_eur NUMERIC(18,2) NOT NULL,
     fee_eur NUMERIC(18,2) DEFAULT 0,
     exchange_id INT REFERENCES t_exchanges(exchange_id),
+    account_id INT REFERENCES t_exchange_accounts(account_id),
     transaction_date TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     executed_by INT REFERENCES t_users(user_id),
     notes TEXT,
@@ -178,7 +179,7 @@ CREATE TABLE IF NOT EXISTS t_exchange_accounts (
     account_id SERIAL PRIMARY KEY,
     exchange_id INTEGER REFERENCES t_exchanges(exchange_id),
     user_id INTEGER REFERENCES t_users(user_id),
-    name TEXT                        -- Ex: "Futuros", "Earn", "Bot 1"
+    account_category TEXT -- Ex: "Futuros", "Earn", "Bot 1"
 );
 
 CREATE TABLE IF NOT EXISTS t_user_payment_methods (
@@ -208,6 +209,26 @@ CREATE TABLE IF NOT EXISTS t_price_snapshots (
     source TEXT DEFAULT 'coingecko',  -- origem do preço (coingecko, manual, etc)
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(asset_id, snapshot_date)
+);
+
+-- ========================================
+-- TABELAS DE TAGS (ESTRATÉGIA) E RELAÇÃO COM TRANSAÇÕES
+-- ========================================
+
+-- Lista de tags (ex.: staking, defi, lending, farming, etc.)
+CREATE TABLE IF NOT EXISTS t_tags (
+    tag_id SERIAL PRIMARY KEY,
+    tag_code TEXT UNIQUE NOT NULL,   -- ex.: 'staking', 'defi'
+    tag_label TEXT,                  -- ex.: 'Staking', 'DeFi'
+    active BOOLEAN DEFAULT TRUE
+);
+
+-- Relação N:N entre transações e tags
+CREATE TABLE IF NOT EXISTS t_transaction_tags (
+    transaction_id INTEGER NOT NULL REFERENCES t_transactions(transaction_id) ON DELETE CASCADE,
+    tag_id INTEGER NOT NULL REFERENCES t_tags(tag_id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(transaction_id, tag_id)
 );
 
 -- Tabela de shares dos utilizadores (sistema de propriedade do fundo)
@@ -266,6 +287,7 @@ CREATE INDEX IF NOT EXISTS idx_transactions_date ON t_transactions(transaction_d
 CREATE INDEX IF NOT EXISTS idx_transactions_asset ON t_transactions(asset_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_type ON t_transactions(transaction_type);
 CREATE INDEX IF NOT EXISTS idx_transactions_executed_by ON t_transactions(executed_by);
+CREATE INDEX IF NOT EXISTS idx_transactions_account ON t_transactions(account_id);
 
 -- Indexes for t_price_snapshots
 CREATE INDEX IF NOT EXISTS idx_price_snapshots_asset_date ON t_price_snapshots(asset_id, snapshot_date DESC);
@@ -329,4 +351,9 @@ INSERT INTO t_assets (symbol, name, chain, coingecko_id, is_stablecoin) VALUES
     ('DJED', 'Djed', 'Cardano', 'djed', TRUE),
     ('SHEN', 'Shen', 'Cardano', 'shen', FALSE)
 ON CONFLICT (symbol) DO NOTHING;
+
+-- Inserir tags comuns (estratégia)
+INSERT INTO t_tags (tag_code, tag_label)
+VALUES ('staking', 'Staking'), ('defi', 'DeFi')
+ON CONFLICT (tag_code) DO NOTHING;
 

@@ -9,6 +9,9 @@ from datetime import datetime
 from database.connection import get_engine
 from sqlalchemy import text
 import requests
+from utils.tags import ensure_default_tags, get_all_tags, build_tags_where_clause, set_transaction_tags
+from database.migrations import ensure_transactions_account_column
+from components.transaction_form_v2 import render_transaction_form
 
 def show():
     """Exibe a página de transações."""
@@ -28,8 +31,20 @@ def show():
 
     engine = get_engine()
 
+    # Ensure tags tables and defaults exist
+    try:
+        ensure_default_tags(engine)
+    except Exception:
+        pass
+    # Ensure t_transactions.account_id exists (best effort)
+    try:
+        ensure_transactions_account_column()
+    except Exception:
+        pass
+
     # Tabs para organizar a interface
-    tab1, tab2 = st.tabs(["📝 Registar Transação", "📊 Histórico"])
+    tab1, tab2, tab3 = st.tabs(["📝 Registar Transação (Legacy)", "📊 Histórico", "🆕 Novo UI (V2)"])
+
 
     with tab1:
         st.subheader("Registar Nova Transação")
@@ -185,6 +200,7 @@ def show():
                     step=0.01,
                     format="%.2f"
                 )
+
             
             # Cálculo automático do total
             total_eur = quantity * price_eur
@@ -197,6 +213,30 @@ def show():
                     st.caption(f"Valor recebido (após taxa): €{total_eur - fee_eur:,.2f}")
             
             notes = st.text_area("Notas/Observações", placeholder="Ex: Rebalanceamento mensal, aproveitamento de dip, etc.")
+
+            # Seleção de Conta (se houver exchange selecionada)
+            account_id = None
+            if exchange_id:
+                df_accounts = pd.read_sql(
+                    "SELECT account_id, name, COALESCE(account_category,'') AS account_category FROM t_exchange_accounts WHERE exchange_id = %s ORDER BY name",
+                    engine,
+                    params=(int(exchange_id),)
+                )
+                if not df_accounts.empty:
+                    acc_map = {f"{row['name']} ({row['account_category'] or '—'})": int(row['account_id']) for _, row in df_accounts.iterrows()}
+                    acc_map["Não especificar"] = None
+                    selected_acc = st.selectbox("Conta", list(acc_map.keys()))
+                    account_id = acc_map[selected_acc]
+
+            # Tags de estratégia (multi)
+            tag_options = get_all_tags(engine)
+            tag_labels = {t["label"]: t["code"] for t in tag_options}
+            selected_tag_labels = st.multiselect(
+                "Tags (estratégia)",
+                options=list(tag_labels.keys()),
+                help="Classifique a transação com tags como Staking, DeFi, etc. Pode gerir tags em Configurações futuramente.",
+            )
+            selected_tag_codes = [tag_labels[lbl] for lbl in selected_tag_labels]
             
             if st.button("Registar Transação", type="primary", use_container_width=True):
                 if quantity <= 0:
@@ -216,6 +256,7 @@ def show():
                             "total_eur": float(total_eur),
                             "fee_eur": float(fee_eur),
                             "exchange_id": exchange_id,
+                            "account_id": account_id,
                             "transaction_date": datetime.combine(transaction_date, datetime.min.time()),
                             "executed_by": int(st.session_state['user_id']),
                             "notes": notes or None,
@@ -223,21 +264,25 @@ def show():
 
                         # Usar transação explícita e SQL com parâmetros nomeados
                         with engine.begin() as conn:
-                            result = conn.execute(
-                                text(
-                                    """
-                                    INSERT INTO t_transactions 
-                                    (transaction_type, asset_id, quantity, price_eur, total_eur, 
-                                     fee_eur, exchange_id, transaction_date, executed_by, notes)
-                                    VALUES (:transaction_type, :asset_id, :quantity, :price_eur, :total_eur, 
-                                            :fee_eur, :exchange_id, :transaction_date, :executed_by, :notes)
-                                    RETURNING transaction_id
-                                    """
-                                ),
-                                params,
+                            sql = text(
+                                """
+                                INSERT INTO t_transactions 
+                                (transaction_type, asset_id, quantity, price_eur, total_eur, 
+                                 fee_eur, exchange_id, account_id, transaction_date, executed_by, notes)
+                                VALUES (:transaction_type, :asset_id, :quantity, :price_eur, :total_eur, 
+                                        :fee_eur, :exchange_id, :account_id, :transaction_date, :executed_by, :notes)
+                                RETURNING transaction_id
+                                """
                             )
 
+                            result = conn.execute(sql, params)
+
                             transaction_id = result.scalar_one()
+                            # Guardar tags N:N
+                            try:
+                                set_transaction_tags(engine, transaction_id, selected_tag_codes)
+                            except Exception:
+                                pass
                             
                             st.success(f"✅ Transação #{transaction_id} registada com sucesso!")
                             st.balloons()
@@ -259,13 +304,36 @@ def show():
             )
         
         with col2:
-            df_assets_filter = pd.read_sql("SELECT DISTINCT symbol FROM t_assets ORDER BY symbol", engine)
+            # Buscar símbolos e IDs para filtrar por ativo em todas as colunas relevantes (V2)
+            df_assets_filter = pd.read_sql("SELECT asset_id, symbol FROM t_assets ORDER BY symbol", engine)
             assets_list = ["Todos"] + df_assets_filter['symbol'].tolist()
+            symbol_to_id = dict(zip(df_assets_filter['symbol'], df_assets_filter['asset_id']))
             filter_asset = st.selectbox("Filtrar por ativo", assets_list, key="filter_asset")
         
         with col3:
             limit = st.number_input("Mostrar últimas", min_value=10, max_value=1000, value=50, step=10)
-        
+
+        # Linha 2 de filtros: filtros por Conta e Categoria de Conta
+        st.markdown("")
+        colc1, colc2, colc3 = st.columns([2, 2, 1])
+        # Contas disponíveis
+        df_all_accounts = pd.read_sql(
+            "SELECT ea.account_id, e.name AS exchange, ea.name AS account, COALESCE(ea.account_category,'') AS category FROM t_exchange_accounts ea JOIN t_exchanges e ON ea.exchange_id = e.exchange_id ORDER BY e.name, ea.name",
+            engine
+        )
+        with colc1:
+            account_filter_options = [f"{row['exchange']} - {row['account']}" for _, row in df_all_accounts.iterrows()]
+            selected_accounts_labels = st.multiselect("Contas", options=account_filter_options, key="tx_accounts_filter")
+            selected_account_ids = set()
+            if selected_accounts_labels:
+                label_to_id = {f"{row['exchange']} - {row['account']}": int(row['account_id']) for _, row in df_all_accounts.iterrows()}
+                selected_account_ids = {label_to_id[l] for l in selected_accounts_labels}
+        with colc2:
+            categories = sorted(list(set(df_all_accounts['category'].dropna().tolist() + [""])) )
+            selected_account_cats = st.multiselect("Categoria de Conta", options=[c for c in categories if c], key="tx_account_cat_filter")
+        with colc3:
+            include_no_account = st.checkbox("Incluir sem conta", value=True)
+
         # Construir query com filtros
         where_clauses = []
         if filter_type == "Compras":
@@ -274,30 +342,99 @@ def show():
             where_clauses.append("t.transaction_type = 'sell'")
         
         if filter_asset != "Todos":
-            where_clauses.append(f"a.symbol = '{filter_asset}'")
+            # Mapear símbolo para asset_id e aplicar aos campos V2 (from/to/fee) e legado (asset_id)
+            asset_id_filter = symbol_to_id.get(filter_asset)
+            if asset_id_filter is not None:
+                where_clauses.append(
+                    f"(t.asset_id = {int(asset_id_filter)} OR t.from_asset_id = {int(asset_id_filter)} OR t.to_asset_id = {int(asset_id_filter)} OR t.fee_asset_id = {int(asset_id_filter)})"
+                )
+
+        # Filtros por conta/categoria de conta (V2)
+        selected_ids_full = set(selected_account_ids)
+        if selected_account_cats:
+            cat_ids = set(df_all_accounts[df_all_accounts['category'].isin(selected_account_cats)]['account_id'].astype(int).tolist())
+            selected_ids_full |= cat_ids
+        if selected_ids_full:
+            ids_list = ",".join(str(i) for i in sorted(selected_ids_full))
+            where_clauses.append(
+                f"(t.account_id IN ({ids_list}) OR t.from_account_id IN ({ids_list}) OR t.to_account_id IN ({ids_list}))"
+            )
+        if not include_no_account:
+            where_clauses.append("(t.account_id IS NOT NULL OR t.from_account_id IS NOT NULL OR t.to_account_id IS NOT NULL)")
+
+        # Linha 3 de filtros: Tags de estratégia
+        st.markdown("")
+        tag_options = get_all_tags(engine)
+        tag_labels = {t["label"]: t["code"] for t in tag_options}
+        selected_tag_labels_filter = st.multiselect(
+            "Tags (estratégia)",
+            options=list(tag_labels.keys()),
+            key="tx_tags_filter",
+            help="Filtra por tags como Staking, DeFi, etc.",
+        )
+        selected_tag_codes_filter = [tag_labels[lbl] for lbl in selected_tag_labels_filter]
+        tags_clause = build_tags_where_clause(selected_tag_codes_filter, tx_alias="t")
+        if tags_clause:
+            where_clauses.append(tags_clause)
         
         where_sql = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
         
-        # Buscar transações
+        # Buscar transações (modelo V2)
         df_transactions = pd.read_sql(f"""
             SELECT 
                 t.transaction_id,
-                t.transaction_date::date as "Data",
-                CASE 
-                    WHEN t.transaction_type = 'buy' THEN '🟢 Compra'
-                    ELSE '🔴 Venda'
-                END as "Tipo",
-                a.symbol as "Ativo",
-                t.quantity as "Quantidade",
-                t.price_eur as "Preço (€)",
-                t.total_eur as "Total (€)",
-                t.fee_eur as "Taxa (€)",
-                e.name as "Exchange",
-                u.username as "Executado por",
-                t.notes as "Notas"
+                t.transaction_date::date AS "Data",
+                t.transaction_type AS "Tipo (código)",
+                COALESCE(
+                    CASE t.transaction_type 
+                        WHEN 'buy' THEN '🟢 Compra'
+                        WHEN 'sell' THEN '🔴 Venda'
+                        WHEN 'deposit' THEN '💶 Depósito'
+                        WHEN 'withdrawal' THEN '💶 Levantamento'
+                        WHEN 'swap' THEN '🔄 Swap'
+                        WHEN 'transfer' THEN '➡️ Transferência'
+                        WHEN 'stake' THEN '🔒 Stake'
+                        WHEN 'unstake' THEN '🔓 Unstake'
+                        WHEN 'reward' THEN '🎁 Recompensa'
+                        WHEN 'lend' THEN '🏦 Lend'
+                        WHEN 'borrow' THEN '🏦 Borrow'
+                        WHEN 'repay' THEN '💳 Repay'
+                        WHEN 'liquidate' THEN '⚠️ Liquidação'
+                        ELSE t.transaction_type
+                    END,
+                    t.transaction_type
+                ) AS "Tipo",
+                af.symbol AS "De Ativo",
+                t.from_quantity AS "Qtd De",
+                at.symbol AS "Para Ativo",
+                t.to_quantity AS "Qtd Para",
+                efrom.name AS "De Exchange",
+                afrom.name AS "De Conta",
+                eto.name AS "Para Exchange",
+                ato.name AS "Para Conta",
+                e.name AS "Exchange (principal)",
+                a.name AS "Conta (principal)",
+                faf.symbol AS "Taxa Asset",
+                t.fee_quantity AS "Taxa Qtd",
+                t.fee_eur AS "Taxa (€)",
+                (
+                    SELECT string_agg(tg.tag_code, ', ' ORDER BY tg.tag_code)
+                    FROM t_transaction_tags tt
+                    JOIN t_tags tg ON tt.tag_id = tg.tag_id
+                    WHERE tt.transaction_id = t.transaction_id
+                ) AS "Tags",
+                u.username AS "Executado por",
+                t.notes AS "Notas"
             FROM t_transactions t
-            JOIN t_assets a ON t.asset_id = a.asset_id
-            LEFT JOIN t_exchanges e ON t.exchange_id = e.exchange_id
+            LEFT JOIN t_assets af ON t.from_asset_id = af.asset_id
+            LEFT JOIN t_assets at ON t.to_asset_id = at.asset_id
+            LEFT JOIN t_assets faf ON t.fee_asset_id = faf.asset_id
+            LEFT JOIN t_exchange_accounts a ON t.account_id = a.account_id
+            LEFT JOIN t_exchanges e ON a.exchange_id = e.exchange_id
+            LEFT JOIN t_exchange_accounts afrom ON t.from_account_id = afrom.account_id
+            LEFT JOIN t_exchanges efrom ON afrom.exchange_id = efrom.exchange_id
+            LEFT JOIN t_exchange_accounts ato ON t.to_account_id = ato.account_id
+            LEFT JOIN t_exchanges eto ON ato.exchange_id = eto.exchange_id
             LEFT JOIN t_users u ON t.executed_by = u.user_id
             {where_sql}
             ORDER BY t.transaction_date DESC, t.transaction_id DESC
@@ -307,73 +444,43 @@ def show():
         if df_transactions.empty:
             st.info("📭 Nenhuma transação registada ainda.")
         else:
-            # Estatísticas rápidas
-            total_buy = df_transactions[df_transactions['Tipo'] == '🟢 Compra']['Total (€)'].sum()
-            total_sell = df_transactions[df_transactions['Tipo'] == '🔴 Venda']['Total (€)'].sum()
-            total_fees = df_transactions['Taxa (€)'].sum()
+            # Estatísticas rápidas (V2)
+            try:
+                buy_mask = df_transactions.get('Tipo (código)', pd.Series(dtype=str)) == 'buy'
+                sell_mask = df_transactions.get('Tipo (código)', pd.Series(dtype=str)) == 'sell'
+                total_buy = df_transactions.loc[buy_mask, 'Qtd De'].fillna(0).sum()
+                total_sell = df_transactions.loc[sell_mask, 'Qtd Para'].fillna(0).sum()
+            except Exception:
+                total_buy = 0.0
+                total_sell = 0.0
+            total_fees = df_transactions.get('Taxa (€)', pd.Series(dtype=float)).fillna(0).sum()
             
             col1, col2, col3, col4 = st.columns(4)
             with col1:
                 st.metric("📊 Total Transações", len(df_transactions))
             with col2:
-                st.metric("🟢 Total Compras", f"€{total_buy:,.2f}")
+                st.metric("🟢 Total Compras (EUR gasto)", f"€{total_buy:,.2f}")
             with col3:
-                st.metric("🔴 Total Vendas", f"€{total_sell:,.2f}")
+                st.metric("🔴 Total Vendas (EUR recebido)", f"€{total_sell:,.2f}")
             with col4:
                 st.metric("💸 Total Taxas", f"€{total_fees:,.2f}")
             
-            # Tabela de transações
+            # Tabela de transações (V2)
+            display_df = df_transactions.drop(columns=['transaction_id', 'Tipo (código)'], errors='ignore')
             st.dataframe(
-                df_transactions.drop('transaction_id', axis=1),
+                display_df,
                 use_container_width=True,
                 hide_index=True
             )
             
-            # Holdings atuais (calculados a partir das transações)
-            st.divider()
-            st.subheader("📦 Holdings Atuais (calculados)")
-            
-            df_holdings = pd.read_sql("""
-                SELECT 
-                    a.symbol as "Ativo",
-                    a.name as "Nome",
-                    SUM(CASE 
-                        WHEN t.transaction_type = 'buy' THEN t.quantity
-                        WHEN t.transaction_type = 'sell' THEN -t.quantity
-                        ELSE 0
-                    END) as "Quantidade Total",
-                    SUM(CASE 
-                        WHEN t.transaction_type = 'buy' THEN t.total_eur + t.fee_eur
-                        WHEN t.transaction_type = 'sell' THEN -(t.total_eur - t.fee_eur)
-                        ELSE 0
-                    END) as "Custo Total (€)"
-                FROM t_transactions t
-                JOIN t_assets a ON t.asset_id = a.asset_id
-                GROUP BY a.asset_id, a.symbol, a.name
-                HAVING SUM(CASE 
-                    WHEN t.transaction_type = 'buy' THEN t.quantity
-                    WHEN t.transaction_type = 'sell' THEN -t.quantity
-                    ELSE 0
-                END) > 0.00000001
-                ORDER BY a.symbol
-            """, engine)
-            
-            if df_holdings.empty:
-                st.info("📭 Nenhum holding atual (todas as posições foram vendidas ou não há transações).")
-            else:
-                # Calcular preço médio
-                df_holdings['Preço Médio (€)'] = df_holdings['Custo Total (€)'] / df_holdings['Quantidade Total']
-                
-                st.dataframe(
-                    df_holdings,
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={
-                        "Quantidade Total": st.column_config.NumberColumn(format="%.8f"),
-                        "Custo Total (€)": st.column_config.NumberColumn(format="€%.2f"),
-                        "Preço Médio (€)": st.column_config.NumberColumn(format="€%.6f")
-                    }
-                )
+            # Secção de holdings movida para � Portfólio
+
+    # Novo UI (V2)
+    with tab3:
+        try:
+            render_transaction_form(engine)
+        except Exception as e:
+            st.error(f"❌ Erro ao carregar o formulário V2: {e}")
 
     st.divider()
     st.caption("💡 **Dica**: Todas as transações aqui registadas afetam a carteira global do fundo e são usadas para calcular a performance e as comissões.")

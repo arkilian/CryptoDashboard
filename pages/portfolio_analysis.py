@@ -6,6 +6,8 @@ import plotly.graph_objects as go
 from database.connection import get_connection, return_connection, get_engine
 from auth.session_manager import require_auth
 from css.charts import apply_theme
+from utils.tags import ensure_default_tags, get_all_tags, build_tags_where_clause
+from database.migrations import ensure_transactions_account_column
 
 
 def _calculate_holdings_vectorized(df_tx):
@@ -51,6 +53,14 @@ def show():
     try:
         conn = get_connection()
         engine = get_engine()
+        try:
+            ensure_default_tags(engine)
+        except Exception:
+            pass
+        try:
+            ensure_transactions_account_column()
+        except Exception:
+            pass
         
         # Verificar se é admin para mostrar seletor de utilizadores
         is_admin = st.session_state.get("is_admin", False)
@@ -105,6 +115,61 @@ def show():
             user_id = st.session_state.get("user_id")
             user_name = st.session_state.get("username")
         
+        # Filtros de categorias (aplicáveis a transações/holdings)
+        st.markdown("---")
+        st.markdown("#### Filtros de Origem (Contas) e Estratégia (Tags)")
+        colc1, colc2, colc3 = st.columns([2, 2, 1])
+        # Carregar contas
+        df_all_accounts = pd.read_sql(
+            "SELECT ea.account_id, e.name AS exchange, ea.name AS account, COALESCE(ea.account_category,'') AS category FROM t_exchange_accounts ea JOIN t_exchanges e ON ea.exchange_id = e.exchange_id ORDER BY e.name, ea.name",
+            engine
+        )
+        with colc1:
+            account_filter_options = [f"{row['exchange']} - {row['account']}" for _, row in df_all_accounts.iterrows()]
+            selected_accounts_labels = st.multiselect("Contas", options=account_filter_options, key="pa_accounts_filter")
+            selected_account_ids = set()
+            if selected_accounts_labels:
+                label_to_id = {f"{row['exchange']} - {row['account']}": int(row['account_id']) for _, row in df_all_accounts.iterrows()}
+                selected_account_ids = {label_to_id[l] for l in selected_accounts_labels}
+        with colc2:
+            categories = sorted(list(set(df_all_accounts['category'].dropna().tolist() + [""])) )
+            selected_account_cats = st.multiselect("Categoria de Conta", options=[c for c in categories if c], key="pa_account_cat_filter")
+        with colc3:
+            include_no_account = st.checkbox("Incluir sem conta", value=True, key="pa_include_no_account")
+        # Removido: UI de categorias de origem (CEX/Wallet/DeFi) e "Incluir sem exchange".
+        # Agora usamos apenas filtros por Contas (exchange accounts) e Tags (estratégia).
+
+        # Construir cláusulas por conta/categoria (V2: aplica a account_id, from_account_id, to_account_id)
+        selected_ids_full = set(selected_account_ids)
+        if selected_account_cats:
+            cat_ids = set(
+                df_all_accounts[df_all_accounts['category'].isin(selected_account_cats)]['account_id']
+                .astype(int)
+                .tolist()
+            )
+            selected_ids_full |= cat_ids
+        account_clauses = []
+        if selected_ids_full:
+            ids_list = ",".join(str(i) for i in sorted(selected_ids_full))
+            account_clauses.append(
+                f"(t.account_id IN ({ids_list}) OR t.from_account_id IN ({ids_list}) OR t.to_account_id IN ({ids_list}))"
+            )
+        if not include_no_account:
+            account_clauses.append("(t.account_id IS NOT NULL OR t.from_account_id IS NOT NULL OR t.to_account_id IS NOT NULL)")
+        account_clause_sql = " AND ".join(account_clauses)
+
+        # Linha de filtros: Tags (estratégia)
+        tag_options = get_all_tags(engine)
+        tag_labels = {t["label"]: t["code"] for t in tag_options}
+        selected_tag_labels = st.multiselect(
+            "Tags (estratégia)",
+            options=list(tag_labels.keys()),
+            key="pa_tags_filter",
+            help="Filtra transações por tags como Staking, DeFi, etc.",
+        )
+        selected_tag_codes = [tag_labels[lbl] for lbl in selected_tag_labels]
+        tags_clause = build_tags_where_clause(selected_tag_codes, tx_alias="t")
+
         # Obter movimentos reais da base de dados
         if user_id is None and is_admin:
             # Vista agregada - todos os utilizadores (exceto admins)
@@ -225,24 +290,42 @@ def show():
                             from services.coingecko import get_price_by_symbol
                             from datetime import date as date_cls
                             
-                            # Buscar todas as transações até o período
-                            df_all_tx = pd.read_sql(
-                                """
-                                SELECT transaction_date::date AS date,
-                                       transaction_type,
-                                       t.asset_id,
-                                       a.symbol,
-                                       quantity,
-                                       total_eur,
-                                       fee_eur
-                                FROM t_transactions t
-                                JOIN t_assets a ON t.asset_id = a.asset_id
-                                WHERE transaction_date::date <= %s
-                                ORDER BY transaction_date
+                            # Preparar filtros globais V2
+                            extras = []
+                            if account_clause_sql:
+                                extras.append(account_clause_sql)
+                            if tags_clause:
+                                extras.append(tags_clause)
+                            extra_sql = (" AND " + " AND ".join(extras)) if extras else ""
+
+                            # Deltas diários por ativo (V2): inflow (to), outflow (from), fees
+                            df_deltas = pd.read_sql(
+                                f"""
+                                WITH deltas AS (
+                                    SELECT t.transaction_date::date AS date, t.to_asset_id AS asset_id, t.to_quantity AS qty
+                                    FROM t_transactions t
+                                    WHERE t.to_asset_id IS NOT NULL AND t.transaction_date::date <= %s {extra_sql}
+                                    UNION ALL
+                                    SELECT t.transaction_date::date, t.from_asset_id, -t.from_quantity
+                                    FROM t_transactions t
+                                    WHERE t.from_asset_id IS NOT NULL AND t.transaction_date::date <= %s {extra_sql}
+                                    UNION ALL
+                                    SELECT t.transaction_date::date, t.fee_asset_id, -t.fee_quantity
+                                    FROM t_transactions t
+                                    WHERE t.fee_asset_id IS NOT NULL AND t.fee_quantity > 0 AND t.transaction_date::date <= %s {extra_sql}
+                                )
+                                SELECT d.date, d.asset_id, SUM(d.qty) AS delta_qty
+                                FROM deltas d
+                                GROUP BY d.date, d.asset_id
+                                ORDER BY d.date
                                 """,
                                 engine,
-                                params=(end_date,)
+                                params=(end_date, end_date, end_date)
                             )
+
+                            # Mapear asset_id -> symbol
+                            df_assets_map = pd.read_sql("SELECT asset_id, symbol FROM t_assets", engine)
+                            df_deltas = df_deltas.merge(df_assets_map, on='asset_id', how='left')
                             
                             # Buscar todos os movimentos de capital até o período
                             if user_id is None and is_admin:
@@ -277,14 +360,14 @@ def show():
                                 df_all_cap = pd.DataFrame(columns=["date","credit","debit"])
                             
                             # Buscar preços históricos dos snapshots para cada data de evento
-                            unique_symbols = df_all_tx['symbol'].unique().tolist() if not df_all_tx.empty else []
+                            unique_symbols = df_deltas['symbol'].dropna().unique().tolist() if not df_deltas.empty else []
                             
                             # Criar array de datas para calcular evolução
                             # Regra de marcadores: um ponto por cada evento (depósito/levantamento OU compra/venda)
                             # + dia 1 de cada mês no intervalo
                             event_dates = set(df_cap["date"].tolist())
-                            if not df_all_tx.empty:
-                                event_dates.update(df_all_tx["date"].tolist())
+                            if not df_deltas.empty:
+                                event_dates.update(df_deltas["date"].tolist())
                             
                             # Adicionar dia 1 de cada mês entre start_date e end_date
                             from datetime import datetime as dt_datetime
@@ -338,38 +421,49 @@ def show():
                                 info_text.empty()
                             
                             saldo_evolution = []
-                            
+
+                            # Construir matriz de deltas por símbolo e acumular ao longo do tempo
+                            if not df_deltas.empty:
+                                df_deltas['date'] = pd.to_datetime(df_deltas['date'])
+                                pivot = (
+                                    df_deltas.pivot_table(index='date', columns='symbol', values='delta_qty', aggfunc='sum')
+                                    .fillna(0.0)
+                                    .sort_index()
+                                )
+                                cum_holdings = pivot.cumsum()
+                                # Alinhar às datas-alvo e forward-fill
+                                cum_holdings = cum_holdings.reindex(pd.to_datetime(all_dates)).ffill().fillna(0.0)
+                            else:
+                                cum_holdings = pd.DataFrame(index=pd.to_datetime(all_dates))
+
                             # Calcular saldo para cada data usando preços DESSA DATA (snapshots)
                             for calc_date in all_dates:
-                                # Caixa até esta data
+                                # Caixa (depósitos - levantamentos) até esta data
                                 cap_until = df_all_cap[df_all_cap["date"] <= calc_date]
-                                cash = cap_until["credit"].sum() - cap_until["debit"].sum()
-                                
-                                tx_until = df_all_tx[df_all_tx["date"] <= calc_date]
-                                if not tx_until.empty:
-                                    spent = tx_until[tx_until["transaction_type"] == "buy"].apply(
-                                        lambda r: r["total_eur"] + r["fee_eur"], axis=1
-                                    ).sum()
-                                    received = tx_until[tx_until["transaction_type"] == "sell"].apply(
-                                        lambda r: r["total_eur"] - r["fee_eur"], axis=1
-                                    ).sum()
-                                    cash = cash - spent + received
-                                
-                                # Posições até esta data valoradas com preços DESSA DATA (snapshots)
+                                cash_from_cap = cap_until["credit"].sum() - cap_until["debit"].sum()
+
+                                # EUR em contas (das transações) até esta data
+                                eur_qty = 0.0
+                                if 'EUR' in cum_holdings.columns:
+                                    # Use asof-aligned cumulative holdings
+                                    eur_qty = float(cum_holdings.loc[pd.to_datetime(calc_date), 'EUR']) if pd.to_datetime(calc_date) in cum_holdings.index else 0.0
+
+                                # Valor de cripto (excluindo EUR) nesta data
                                 holdings_value = 0.0
-                                if not tx_until.empty:
-                                    # Use vectorized function to calculate holdings efficiently
-                                    holdings = _calculate_holdings_vectorized(tx_until)
-                                    
-                                    # Usar preços do cache (já buscados)
+                                if not cum_holdings.empty:
                                     historical_prices = prices_cache.get(calc_date, {})
-                                    
-                                    # Valorizar com preços DA DATA calc_date
-                                    for sym, qty in holdings.items():
-                                        if sym in historical_prices and historical_prices[sym]:
-                                            holdings_value += qty * float(historical_prices[sym])
-                                
-                                saldo_evolution.append(cash + holdings_value)
+                                    if historical_prices:
+                                        row = cum_holdings.loc[pd.to_datetime(calc_date)] if pd.to_datetime(calc_date) in cum_holdings.index else None
+                                        if row is not None:
+                                            for sym, qty in row.items():
+                                                if sym == 'EUR':
+                                                    continue
+                                                price = historical_prices.get(sym)
+                                                if price:
+                                                    holdings_value += float(qty) * float(price)
+
+                                # Saldo = caixa de movimentos + EUR em contas + valor cripto
+                                saldo_evolution.append(cash_from_cap + eur_qty + holdings_value)
                             
                             # Alinhar séries acumuladas (depósitos/levantamentos) às datas de eventos (forward-fill)
                             df_dates = pd.DataFrame({"date": pd.to_datetime(all_dates)})
@@ -443,41 +537,36 @@ def show():
                 try:
                     if 'total_credit' in locals() and 'total_debit' in locals():
                         # Buscar preços de HOJE
-                        unique_symbols_today = df_all_tx['symbol'].unique().tolist() if 'df_all_tx' in locals() and not df_all_tx.empty else []
+                        unique_symbols_today = unique_symbols if 'unique_symbols' in locals() else []
                         today_prices = {}
                         if unique_symbols_today:
                             today_prices = get_price_by_symbol(unique_symbols_today, vs_currency='eur')
-                        
-                        # Calcular caixa disponível
-                        cash_balance = total_credit - total_debit
-                        if 'df_all_tx' in locals() and not df_all_tx.empty:
-                            spent_total = df_all_tx[df_all_tx["transaction_type"] == "buy"].apply(
-                                lambda r: r["total_eur"] + r["fee_eur"], axis=1
-                            ).sum()
-                            received_total = df_all_tx[df_all_tx["transaction_type"] == "sell"].apply(
-                                lambda r: r["total_eur"] - r["fee_eur"], axis=1
-                            ).sum()
-                            cash_balance = cash_balance - spent_total + received_total
-                        
-                        # Calcular holdings com preços de HOJE
+
+                        # Caixa de movimentos (depósitos - levantamentos)
+                        cash_from_cap = total_credit - total_debit
+
+                        # Holdings atuais por símbolo (V2)
                         crypto_holdings = []
-                        if 'df_all_tx' in locals() and not df_all_tx.empty:
-                            # Use vectorized function to calculate holdings efficiently
-                            holdings_by_symbol = _calculate_holdings_vectorized(df_all_tx)
-                            
-                            for sym, qty in holdings_by_symbol.items():
+                        eur_qty_today = 0.0
+                        if 'cum_holdings' in locals() and not cum_holdings.empty:
+                            last_row = cum_holdings.iloc[-1]
+                            for sym, qty in last_row.items():
+                                if sym == 'EUR':
+                                    eur_qty_today = float(qty)
+                                    continue
                                 price_today = today_prices.get(sym, 0)
-                                if price_today:
-                                    value_eur = qty * float(price_today)
+                                if price_today and qty and qty > 0:
+                                    value_eur = float(qty) * float(price_today)
                                     crypto_holdings.append({
                                         "Ativo": sym,
-                                        "Quantidade": qty,
+                                        "Quantidade": float(qty),
                                         "Preço Atual (€)": float(price_today),
                                         "Valor Total (€)": value_eur
                                     })
-                        
-                        # SALDO ATUAL REAL = caixa + cripto a preços de HOJE
+
+                        # SALDO ATUAL REAL = caixa (cap movements) + EUR em contas + cripto a preços de HOJE
                         crypto_value_today = sum([h["Valor Total (€)"] for h in crypto_holdings])
+                        cash_balance = cash_from_cap + eur_qty_today
                         saldo_atual_real = cash_balance + crypto_value_today
                         
                 except Exception as e:
@@ -533,6 +622,179 @@ def show():
                     import traceback
                     st.code(traceback.format_exc())
         
+                # ================================
+                # Holdings Atuais (por Conta) e Totais por Ativo
+                # ================================
+                st.markdown("---")
+                st.markdown("### 📦 Holdings Atuais (calculados)")
+                try:
+                    # Construir WHERE a partir dos filtros já definidos
+                    extras = []
+                    if 'account_clause_sql' in locals() and account_clause_sql:
+                        extras.append(account_clause_sql)
+                    if 'tags_clause' in locals() and tags_clause:
+                        extras.append(tags_clause)
+                    v2_where = (" WHERE " + " AND ".join(extras)) if extras else ""
+                    cond_prefix = " AND " if v2_where else " WHERE "
+
+                    # Query de holdings por conta (V2), incluindo Banco quando não há conta (account_id = -1)
+                    df_holdings_acc = pd.read_sql(f"""
+                        WITH inflows AS (
+                            SELECT COALESCE(t.to_account_id, t.account_id, -1) AS account_id, t.to_asset_id AS asset_id, SUM(t.to_quantity) AS qty
+                            FROM t_transactions t
+                            {v2_where}
+                            {cond_prefix} t.to_asset_id IS NOT NULL
+                            GROUP BY 1,2
+                        ), outflows AS (
+                            SELECT COALESCE(t.from_account_id, t.account_id, -1) AS account_id, t.from_asset_id AS asset_id, SUM(t.from_quantity) AS qty
+                            FROM t_transactions t
+                            {v2_where}
+                            {cond_prefix} t.from_asset_id IS NOT NULL
+                            GROUP BY 1,2
+                        ), fees AS (
+                            SELECT COALESCE(t.from_account_id, t.account_id, -1) AS account_id, t.fee_asset_id AS asset_id, SUM(t.fee_quantity) AS qty
+                            FROM t_transactions t
+                            {v2_where}
+                            {cond_prefix} t.fee_asset_id IS NOT NULL AND t.fee_quantity > 0
+                            GROUP BY 1,2
+                        ), combined AS (
+                            SELECT account_id, asset_id, SUM(qty) AS inflow, 0 AS outflow, 0 AS fee FROM inflows GROUP BY 1,2
+                            UNION ALL
+                            SELECT account_id, asset_id, 0, SUM(qty), 0 FROM outflows GROUP BY 1,2
+                            UNION ALL
+                            SELECT account_id, asset_id, 0, 0, SUM(qty) FROM fees GROUP BY 1,2
+                        ), agg AS (
+                            SELECT account_id, asset_id, SUM(inflow) - SUM(outflow) - SUM(fee) AS qty
+                            FROM combined
+                            GROUP BY 1,2
+                        )
+                        SELECT 
+                            ass.symbol AS "Ativo",
+                            COALESCE(ex.name, 'Banco') AS "Exchange",
+                            COALESCE(acc.name, 'Tesouraria') AS "Conta",
+                            COALESCE(acc.account_category, 'FIAT') AS "Categoria Conta",
+                            qty AS "Quantidade"
+                        FROM agg
+                        JOIN t_assets ass ON agg.asset_id = ass.asset_id
+                        LEFT JOIN t_exchange_accounts acc ON (agg.account_id = acc.account_id AND agg.account_id <> -1)
+                        LEFT JOIN t_exchanges ex ON acc.exchange_id = ex.exchange_id
+                        WHERE qty > 0.00000001
+                        ORDER BY ass.symbol, "Exchange", "Conta"
+                    """, engine)
+
+                    if df_holdings_acc.empty:
+                        st.info("📭 Nenhum holding atual.")
+                    else:
+                        st.dataframe(
+                            df_holdings_acc,
+                            use_container_width=True,
+                            hide_index=True,
+                            column_config={
+                                "Quantidade": st.column_config.NumberColumn(format="%.8f")
+                            }
+                        )
+
+                        # Totais por ativo
+                        df_holdings_total = df_holdings_acc.groupby(["Ativo"], as_index=False)["Quantidade"].sum().sort_values("Ativo")
+                        st.markdown("#### 📦 Totais por Ativo")
+                        st.dataframe(
+                            df_holdings_total,
+                            use_container_width=True,
+                            hide_index=True,
+                            column_config={
+                                "Quantidade": st.column_config.NumberColumn(format="%.8f")
+                            }
+                        )
+                except Exception as e:
+                    st.warning(f"⚠️ Não foi possível calcular holdings atuais: {e}")
+                    import traceback
+                    st.code(traceback.format_exc())
+
+                # ================================
+                # Relatórios por Estratégia (Tags)
+                # ================================
+                st.markdown("---")
+                st.markdown("### 📊 Relatórios por Estratégia (Tags)")
+                try:
+                    # Obter transações com tags (aplicando os mesmos filtros de contas/tags do topo)
+                    extras = []
+                    if 'account_clause_sql' in locals() and account_clause_sql:
+                        extras.append(account_clause_sql)
+                    if 'tags_clause' in locals() and tags_clause:
+                        extras.append(tags_clause)
+                    extra_sql = (" AND " + " AND ".join(extras)) if extras else ""
+
+                    df_tag_tx = pd.read_sql(
+                        f"""
+                        SELECT 
+                            tg.tag_code,
+                            t.transaction_type,
+                            a.symbol,
+                            t.quantity,
+                            t.total_eur,
+                            t.fee_eur
+                        FROM t_transactions t
+                        JOIN t_assets a ON t.asset_id = a.asset_id
+                        LEFT JOIN t_exchange_accounts ea ON t.account_id = ea.account_id
+                        JOIN t_transaction_tags tt ON tt.transaction_id = t.transaction_id
+                        JOIN t_tags tg ON tt.tag_id = tg.tag_id
+                        WHERE t.transaction_date::date <= %s
+                        {extra_sql}
+                        ORDER BY t.transaction_date
+                        """,
+                        engine,
+                        params=(end_date,)
+                    )
+
+                    if df_tag_tx.empty:
+                        st.info("📭 Sem transações com tags para o filtro atual.")
+                    else:
+                        # Preços de hoje para valorização
+                        syms = sorted(df_tag_tx['symbol'].unique().tolist())
+                        price_map = get_price_by_symbol(syms, vs_currency='eur') if syms else {}
+
+                        # Calcular por tag (cashflow)
+                        rows = []
+                        for tag, g in df_tag_tx.groupby('tag_code'):
+                            spent = g[g['transaction_type'] == 'buy'].apply(lambda r: r['total_eur'] + r['fee_eur'], axis=1).sum()
+                            received = g[g['transaction_type'] == 'sell'].apply(lambda r: r['total_eur'] - r['fee_eur'], axis=1).sum()
+                            # Quantidades atuais por símbolo
+                            qty_by_sym = g.apply(lambda r: r['quantity'] if r['transaction_type']=='buy' else -r['quantity'], axis=1).groupby(g['symbol']).sum()
+                            # Valor atual
+                            current_value = 0.0
+                            for sym, qty in qty_by_sym.items():
+                                p = price_map.get(sym)
+                                if p:
+                                    current_value += float(p) * float(qty)
+                            resultado = -float(spent) + float(received) + float(current_value)
+                            rows.append({
+                                'Tag': tag,
+                                'Investido (€)': float(spent),
+                                'Recebido (€)': float(received),
+                                'Valor Atual (€)': float(current_value),
+                                'Resultado (€)': float(resultado),
+                            })
+
+                        if rows:
+                            df_report = pd.DataFrame(rows).sort_values('Resultado (€)', ascending=False)
+                            st.dataframe(
+                                df_report,
+                                use_container_width=True,
+                                hide_index=True,
+                                column_config={
+                                    'Investido (€)': st.column_config.NumberColumn(format='€%.2f'),
+                                    'Recebido (€)': st.column_config.NumberColumn(format='€%.2f'),
+                                    'Valor Atual (€)': st.column_config.NumberColumn(format='€%.2f'),
+                                    'Resultado (€)': st.column_config.NumberColumn(format='€%.2f'),
+                                },
+                            )
+                        else:
+                            st.info("📭 Sem dados para o relatório.")
+                except Exception as e:
+                    st.warning(f"⚠️ Não foi possível gerar o relatório por estratégia: {e}")
+                    import traceback
+                    st.code(traceback.format_exc())
+
         # Seção de Top Holders (sempre visível para admin, independente da vista)
         if is_admin:
             st.markdown("---")

@@ -2,6 +2,9 @@ import streamlit as st
 import pandas as pd
 from services.fees import get_current_fee_settings, update_fee_settings, get_fee_history
 from database.connection import get_engine
+from sqlalchemy import text
+from utils.tags import ensure_default_tags, get_all_tags
+from database.migrations import ensure_exchange_accounts_category_column
 
 def show_settings_page():
     st.title("⚙️ Configurações do Fundo")
@@ -12,7 +15,7 @@ def show_settings_page():
         st.stop()
 
     # Sub-menus
-    tab1, tab2, tab3, tab4 = st.tabs(["💰 Taxas", "🪙 Ativos", "🏦 Exchanges", "📸 Snapshots"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["💰 Taxas", "🪙 Ativos", "🏦 Exchanges", "📸 Snapshots", "🏷️ Tags"])
 
     # ========================================
     # TAB 1: TAXAS
@@ -188,7 +191,7 @@ def show_settings_page():
         
         st.divider()
         
-        # Adicionar nova exchange
+    # Adicionar nova exchange
         st.subheader("➕ Adicionar Nova Exchange")
         
         col1, col2 = st.columns(2)
@@ -219,6 +222,83 @@ def show_settings_page():
                     
                 except Exception as e:
                     st.error(f"❌ Erro ao adicionar exchange: {str(e)}")
+
+        st.divider()
+        st.subheader("🏷️ Contas por Exchange (categoria)")
+        # Garantir coluna account_category
+        try:
+            ensure_exchange_accounts_category_column()
+        except Exception:
+            pass
+
+        # Selecionar exchange para gerir contas
+        if not df_exchanges.empty:
+            exch_map = dict(zip(df_exchanges['name'], df_exchanges['exchange_id']))
+            selected_exch_name = st.selectbox("Exchange", list(exch_map.keys()), key="acct_exch_sel")
+            selected_exch_id = exch_map[selected_exch_name]
+
+            df_accounts = pd.read_sql(
+                """
+                SELECT account_id, name, COALESCE(account_category,'') AS account_category
+                FROM t_exchange_accounts
+                WHERE exchange_id = %s
+                ORDER BY name
+                """,
+                engine,
+                params=(int(selected_exch_id),)
+            )
+
+            # Tabela editável de categorias
+            if not df_accounts.empty:
+                st.caption("Edite a categoria da conta e clique em Guardar alterações")
+                category_choices = ["", "Spot", "Earn", "LP", "Futures", "Staking", "DeFi", "Wallet", "Outro"]
+                edited = st.data_editor(
+                    df_accounts.rename(columns={"name": "Conta", "account_category": "Categoria"}),
+                    column_config={
+                        "Categoria": st.column_config.SelectboxColumn(options=category_choices)
+                    },
+                    hide_index=True,
+                    use_container_width=True,
+                    num_rows="fixed",
+                    key="acct_editor"
+                )
+                if st.button("Guardar alterações", key="save_acct_cats"):
+                    try:
+                        with engine.begin() as conn:
+                            for _, row in edited.iterrows():
+                                conn.execute(
+                                    text("UPDATE t_exchange_accounts SET account_category = :cat WHERE account_id = :id"),
+                                    {"cat": (row.get("Categoria") or None), "id": int(row["account_id"])}
+                                )
+                        st.success("✅ Categorias de contas atualizadas!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Erro ao atualizar: {e}")
+            else:
+                st.info("📭 Nenhuma conta nesta exchange.")
+
+            st.markdown("### ➕ Adicionar Conta")
+            col1, col2 = st.columns(2)
+            with col1:
+                new_acct_name = st.text_input("Nome da Conta", placeholder="Ex.: Spot, Earn 1, LP Pool A")
+            with col2:
+                new_acct_cat = st.selectbox("Categoria", ["", "Spot", "Earn", "LP", "Futures", "Staking", "DeFi", "Wallet", "Outro"], index=0)
+            if st.button("Adicionar Conta", key="btn_add_account"):
+                if not new_acct_name:
+                    st.error("❌ O nome da conta é obrigatório")
+                else:
+                    try:
+                        with engine.begin() as conn:
+                            conn.execute(
+                                text("INSERT INTO t_exchange_accounts (exchange_id, user_id, name, account_category) VALUES (:ex, NULL, :nm, :cat)"),
+                                {"ex": int(selected_exch_id), "nm": new_acct_name, "cat": (new_acct_cat or None)}
+                            )
+                        st.success("✅ Conta adicionada!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Erro ao adicionar conta: {e}")
+        else:
+            st.info("Adicione uma exchange para gerir contas.")
 
     # ========================================
     # TAB 4: SNAPSHOTS DE PREÇOS
@@ -340,6 +420,97 @@ def show_settings_page():
             st.dataframe(df_recent, use_container_width=True, hide_index=True)
         else:
             st.info("📭 Ainda não há snapshots guardados.")
+
+    # ========================================
+    # TAB 5: TAGS (CRUD)
+    # ========================================
+    with tab5:
+        st.subheader("🏷️ Gestão de Tags (Estratégia)")
+        try:
+            ensure_default_tags(engine)
+        except Exception:
+            pass
+
+        df_tags = pd.read_sql("SELECT tag_id, tag_code, COALESCE(tag_label, tag_code) AS tag_label, active FROM t_tags ORDER BY tag_label", engine)
+        if not df_tags.empty:
+            st.dataframe(
+                df_tags.rename(columns={"tag_code": "Código", "tag_label": "Etiqueta", "active": "Ativa"}).drop("tag_id", axis=1),
+                use_container_width=True,
+                hide_index=True
+            )
+        else:
+            st.info("📭 Sem tags.")
+
+        st.divider()
+        st.markdown("### ➕ Adicionar Tag")
+        col1, col2 = st.columns(2)
+        with col1:
+            new_tag_code = st.text_input("Código", placeholder="ex.: staking, defi").strip()
+        with col2:
+            new_tag_label = st.text_input("Etiqueta", placeholder="ex.: Staking, DeFi").strip()
+        if st.button("Adicionar Tag", key="btn_add_tag", type="primary"):
+            if not new_tag_code:
+                st.error("❌ Código é obrigatório")
+            else:
+                try:
+                    with engine.begin() as conn:
+                        conn.execute(text("INSERT INTO t_tags (tag_code, tag_label, active) VALUES (:c, :l, TRUE)"), {"c": new_tag_code, "l": new_tag_label or new_tag_code})
+                    st.success("✅ Tag adicionada!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Erro ao adicionar: {e}")
+
+        st.divider()
+        st.markdown("### ✏️ Editar/Remover Tags")
+        df_tags_edit = pd.read_sql("SELECT tag_id, tag_code, COALESCE(tag_label, tag_code) AS tag_label, active FROM t_tags ORDER BY tag_label", engine)
+        if not df_tags_edit.empty:
+            edited = st.data_editor(
+                df_tags_edit.rename(columns={"tag_code": "Código", "tag_label": "Etiqueta", "active": "Ativa"}),
+                column_config={"Ativa": st.column_config.CheckboxColumn()},
+                hide_index=True,
+                use_container_width=True,
+                num_rows="fixed",
+                key="tags_editor"
+            )
+            colA, colB = st.columns(2)
+            with colA:
+                if st.button("Guardar alterações", key="btn_save_tags"):
+                    try:
+                        with engine.begin() as conn:
+                            for _, row in edited.iterrows():
+                                conn.execute(
+                                    text("UPDATE t_tags SET tag_label = :l, active = :a WHERE tag_id = :id"),
+                                    {"l": row.get("Etiqueta") or row.get("Código"), "a": bool(row.get("Ativa")), "id": int(row["tag_id"])},
+                                )
+                        st.success("✅ Tags atualizadas!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Erro ao atualizar: {e}")
+            with colB:
+                # Remoção segura: apenas se não houver uso na tabela de relação
+                # UI mais amigável: selecionar a tag por etiqueta/código
+                tag_options = [
+                    (int(row["tag_id"]), f"{row['tag_id']} - {row['tag_label']} ({row['tag_code']})")
+                    for _, row in df_tags_edit.iterrows()
+                ]
+                if tag_options:
+                    option_labels = [lbl for _, lbl in tag_options]
+                    selected_label = st.selectbox("Selecionar Tag para remover", option_labels, key="tag_del_select")
+                    selected_id = next((tid for tid, lbl in tag_options if lbl == selected_label), None)
+                    if st.button("Remover Tag", key="btn_delete_tag"):
+                        try:
+                            with engine.begin() as conn:
+                                used = conn.execute(text("SELECT COUNT(*) FROM t_transaction_tags WHERE tag_id = :id"), {"id": int(selected_id)}).scalar()
+                                if used and used > 0:
+                                    st.warning("❌ Tag em uso, não pode ser removida. Desative-a em vez disso.")
+                                else:
+                                    conn.execute(text("DELETE FROM t_tags WHERE tag_id = :id"), {"id": int(selected_id)})
+                                    st.success("✅ Tag removida!")
+                                    st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Erro ao remover: {e}")
+                else:
+                    st.info("Sem tags para remover.")
 
 
 if __name__ == "__main__":

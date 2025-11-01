@@ -13,9 +13,21 @@ from css.sidebar import get_sidebar_style
 from css.tables import get_tables_style
 from css.base import get_app_base_style
 from css.forms import get_forms_style
+from database.migrations import apply_transaction_model_v2, check_transaction_model_v2
 
 def main():
     st.set_page_config(page_title="Crypto Dashboard", page_icon="🔒", layout="wide")
+    
+    # Apply database migrations on startup
+    try:
+        if not check_transaction_model_v2():
+            with st.spinner("🔄 Aplicando atualizações ao modelo de dados..."):
+                if apply_transaction_model_v2():
+                    st.success("✅ Modelo de transações V2 aplicado com sucesso!")
+                else:
+                    st.error("⚠️ Erro ao aplicar migration. Verifique logs.")
+    except Exception as e:
+        st.warning(f"⚠️ Aviso: Não foi possível verificar migrations: {e}")
 
     # Initialize commonly used session_state keys to avoid AttributeError in pages
     if "page" not in st.session_state:
@@ -98,9 +110,9 @@ def main():
     # Menu comum para todos os usuários
     menu_options = [
         "📊 Análise de Portfólio",
-        "📈 Portfólio",
+        #"📈 Portfólio",
         "💰 Cotações",
-        "📸 Snapshots",
+        #"📸 Snapshots",
         "📄 Documentos",
     ]
     
@@ -131,12 +143,12 @@ def main():
         show_transactions_page()
     elif menu == "📊 Análise de Portfólio":
         show_portfolio_analysis_page()
-    elif menu == "📈 Portfólio":
-        show_portfolio_page()
+    #elif menu == "📈 Portfólio":
+    #    show_portfolio_page()
     elif menu == "💰 Cotações":
         show_prices_page()
-    elif menu == "📸 Snapshots":
-        show_snapshots_page()
+    #elif menu == "📸 Snapshots":
+    #    show_snapshots_page()
     elif menu == "📄 Documentos":
         show_documents_page()
     elif menu == "⚙️ Configurações" and is_admin:

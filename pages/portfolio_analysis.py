@@ -54,10 +54,25 @@ def show():
         
         if is_admin:
             # Admin pode ver "Todos" (fundo comunitário) ou utilizador individual
-            df_users = pd.read_sql(
-                "SELECT tu.user_id, tu.username, tup.email FROM t_users tu LEFT JOIN t_user_profile tup ON tu.user_id = tup.user_id ORDER BY tu.user_id",
-                engine
-            )
+            # Cache user list to avoid redundant queries
+            cache_key = "portfolio_analysis_users"
+            cache_time_key = "portfolio_analysis_users_time"
+            
+            import time
+            current_time = time.time()
+            
+            # Check if cache is valid (30 seconds TTL)
+            if (cache_key in st.session_state and 
+                cache_time_key in st.session_state and
+                current_time - st.session_state[cache_time_key] < 30):
+                df_users = st.session_state[cache_key]
+            else:
+                df_users = pd.read_sql(
+                    "SELECT tu.user_id, tu.username, tup.email FROM t_users tu LEFT JOIN t_user_profile tup ON tu.user_id = tup.user_id ORDER BY tu.user_id",
+                    engine
+                )
+                st.session_state[cache_key] = df_users
+                st.session_state[cache_time_key] = current_time
             
             # Adicionar opção "Todos (Fundo Comunitário)" no início
             opcoes = ["💰 Todos (Fundo Comunitário)"]

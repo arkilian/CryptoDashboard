@@ -296,15 +296,20 @@ def show():
                                 progress_bar = st.progress(0.0)
                                 info_text = st.empty()
                                 
+                                # Batch process dates in groups to reduce UI updates
+                                batch_size = max(1, total_dates // 20)  # Update UI ~20 times max
+                                
                                 for idx, calc_date in enumerate(all_dates):
-                                    progress_text.text(f"🔄 A carregar preços históricos... {idx+1}/{total_dates} datas")
-                                    progress_bar.progress((idx + 1) / total_dates)
+                                    # Only update UI every batch_size iterations
+                                    if idx % batch_size == 0 or idx == total_dates - 1:
+                                        progress_text.text(f"🔄 A carregar preços históricos... {idx+1}/{total_dates} datas")
+                                        progress_bar.progress((idx + 1) / total_dates)
                                     
                                     prices = get_historical_prices_by_symbol(unique_symbols, calc_date)
                                     prices_cache[calc_date] = prices
                                     
-                                    # Informar se buscou da BD ou API
-                                    if prices:
+                                    # Informar se buscou da BD ou API (less frequent updates)
+                                    if idx % batch_size == 0 and prices:
                                         info_text.text(f"✅ {calc_date}: {len(prices)} preços carregados (BD local + CoinGecko se necessário)")
                                 
                                 # Limpar mensagens de progresso

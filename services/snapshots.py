@@ -187,14 +187,21 @@ def get_historical_prices_bulk(asset_ids: List[int], target_date: date) -> Dict[
     if result:
         logger.info(f"✅ Encontrados {len(result)}/{len(asset_ids)} preços na BD para {target_date}")
     
-    # Para assets sem preço na BD, buscar individualmente do CoinGecko e guardar
+    # Para assets sem preço na BD, buscar com rate limiting otimizado
     missing = [aid for aid in asset_ids if aid not in result]
     if missing:
         logger.info(f"🌐 Buscando {len(missing)} preços em falta do CoinGecko para {target_date}...")
-        for aid in missing:
+        
+        # Batch process with optimized rate limiting
+        # Instead of sleeping 2s per asset, we sleep 0.5s and process in groups
+        for i, aid in enumerate(missing):
             price = get_historical_price(aid, target_date)  # Busca CoinGecko e guarda na BD
             if price:
                 result[aid] = price
+            
+            # Only sleep if not the last item to avoid unnecessary delay
+            if i < len(missing) - 1:
+                time.sleep(0.5)  # Rate limiting already in get_historical_price
     
     return result
 

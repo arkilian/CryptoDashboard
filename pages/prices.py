@@ -4,6 +4,7 @@ from services.coingecko import CoinGeckoService
 from auth.session_manager import require_auth
 from database.connection import get_engine
 import pandas as pd
+from css.charts import apply_theme
 
 @require_auth
 def show():
@@ -117,8 +118,10 @@ def show():
                     fig.add_trace(go.Scatter(
                         x=[x[0] for x in chart_data['prices']],
                         y=[x[1] for x in chart_data['prices']],
-                        mode='lines',
-                        name='Preço'
+                        mode='lines+markers',
+                        name='Preço',
+                        line=dict(width=3, color='#3b82f6'),
+                        marker=dict(size=4)
                     ))
                     
                     fig.update_layout(
@@ -127,7 +130,8 @@ def show():
                         yaxis_title='Preço (USD)'
                     )
                     
-                    st.plotly_chart(fig)
+                    fig = apply_theme(fig)
+                    st.plotly_chart(fig, use_container_width=True)
                     
                     # Mostrar estatísticas
                     if len(chart_data['prices']) > 1:

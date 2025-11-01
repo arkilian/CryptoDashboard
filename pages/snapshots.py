@@ -3,6 +3,7 @@ from datetime import date
 import plotly.express as px
 from services.snapshot import SnapshotService
 from auth.session_manager import require_auth
+from css.charts import apply_theme
 
 @require_auth
 def show():
@@ -121,13 +122,21 @@ def show():
             # Line chart
             fig = px.line(df, x='Data', y='Total',
                          title="Evolução do Capital Total")
-            st.plotly_chart(fig)
+            fig.update_traces(
+                line=dict(width=3),
+                mode='lines+markers',
+                marker=dict(size=6, line=dict(width=1, color='white'))
+            )
+            fig = apply_theme(fig)
+            st.plotly_chart(fig, use_container_width=True)
             
             # Stacked area chart
             fig_stacked = px.area(df, x='Data',
                                 y=['Binance', 'Ledger', 'DeFi', 'Outros'],
                                 title="Distribuição do Capital")
-            st.plotly_chart(fig_stacked)
+            fig_stacked.update_traces(line=dict(width=2))
+            fig_stacked = apply_theme(fig_stacked)
+            st.plotly_chart(fig_stacked, use_container_width=True)
             
             # Data table
             st.dataframe(df)

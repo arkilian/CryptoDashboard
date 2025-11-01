@@ -5,6 +5,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from database.connection import get_connection, return_connection, get_engine
 from auth.session_manager import require_auth
+from css.charts import apply_theme
 
 
 def _calculate_holdings_vectorized(df_tx):
@@ -406,14 +407,16 @@ def show():
                             y=df_plot["depositado_acum"],
                             mode='lines+markers',
                             name='Total Depositado',
-                            line=dict(color='blue')
+                            line=dict(color='#3b82f6', width=3),
+                            marker=dict(size=6)
                         ))
                         fig_portfolio.add_trace(go.Scatter(
                             x=df_plot["date"],
                             y=df_plot["levantado_acum"],
                             mode='lines+markers',
                             name='Total Levantado',
-                            line=dict(color='red')
+                            line=dict(color='#ef4444', width=3),
+                            marker=dict(size=6)
                         ))
                         # Linha do Saldo Atual (evolutiva)
                         if len(df_plot) > 0:
@@ -422,7 +425,8 @@ def show():
                                 y=df_plot["saldo_atual"],
                                 mode='lines+markers',
                                 name='Saldo Atual',
-                                line=dict(color='green', width=3)
+                                line=dict(color='#10b981', width=4),
+                                marker=dict(size=8)
                             ))
 
                         fig_portfolio.update_layout(
@@ -432,6 +436,7 @@ def show():
                             legend=dict(x=0, y=1),
                             hovermode='x unified'
                         )
+                        fig_portfolio = apply_theme(fig_portfolio)
                         st.plotly_chart(fig_portfolio, use_container_width=True)
 
                 # Calcular SALDO ATUAL com preços de HOJE (para as métricas)
@@ -611,8 +616,12 @@ def show():
                             fig_pie.update_traces(
                                 textposition='inside',
                                 textinfo='percent+label',
-                                hovertemplate='<b>%{label}</b><br>Propriedade: %{value:.2f}%<br>Valor: €%{customdata[0]:,.2f}<extra></extra>'
+                                hovertemplate='<b>%{label}</b><br>Propriedade: %{value:.2f}%<br>Valor: €%{customdata[0]:,.2f}<extra></extra>',
+                                marker=dict(line=dict(color='rgba(0, 0, 0, 0.5)', width=2)),
+                                pull=[0.05] * len(df_top),
+                                hole=0.3
                             )
+                            fig_pie = apply_theme(fig_pie)
                             st.plotly_chart(fig_pie, use_container_width=True)
                     else:
                         st.info("ℹ️ Ainda não há utilizadores com shares no fundo.")
@@ -650,6 +659,14 @@ def show():
                             values='Saldo Total (€)',
                             title='Distribuição de Capital por Utilizador'
                         )
+                        fig_pie.update_traces(
+                            textposition='inside',
+                            textinfo='percent+label',
+                            marker=dict(line=dict(color='rgba(0, 0, 0, 0.5)', width=2)),
+                            pull=[0.05] * len(df_top),
+                            hole=0.3
+                        )
+                        fig_pie = apply_theme(fig_pie)
                         st.plotly_chart(fig_pie, use_container_width=True)
                 else:
                     st.info("ℹ️ Ainda não há dados suficientes para o ranking.")

@@ -40,6 +40,42 @@ button[kind="secondary"] { border-color: #60a5fa !important; }
   border-radius: 10px !important;
   box-shadow: inset 0 1px 2px rgba(0,0,0,.25);
 }
+
+/* BaseWeb wrapper do input (evita contorno vermelho padrão) */
+[data-testid="stTextInput"] div[data-baseweb="input"],
+[data-testid="stTextInput"] div[data-baseweb="base-input"] {
+  background: rgba(30,41,59,.75) !important;
+  border: 1px solid rgba(59,130,246,.35) !important;
+  border-radius: 10px !important;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,.25) !important;
+}
+
+/* Focus consistente (também quando o foco está dentro do wrapper) */
+[data-testid="stTextInput"] div[data-baseweb="input"]:focus-within,
+[data-testid="stTextInput"] div[data-baseweb="base-input"]:focus-within {
+  outline: none !important;
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 3px rgba(59,130,246,.25) !important;
+}
+
+/* Estado inválido/erro – força azul em vez de vermelho */
+[data-testid="stTextInput"] div[aria-invalid="true"],
+[data-testid="stTextInput"] div[data-invalid="true"],
+[data-testid="stTextInput"] input:invalid {
+  border-color: rgba(59,130,246,.55) !important;
+  box-shadow: 0 0 0 3px rgba(59,130,246,.25) !important;
+  outline: none !important;
+}
+
+/* Autofill do navegador (evita amarelo e contorno estranho) */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0px 1000px rgba(30,41,59,.75) inset !important;
+  box-shadow: 0 0 0px 1000px rgba(30,41,59,.75) inset !important;
+  -webkit-text-fill-color: #e2e8f0 !important;
+  border: 1px solid rgba(59,130,246,.35) !important;
+}
 [data-testid="stTextInput"]  input:focus,
 [data-testid="stNumberInput"] input:focus,
 [data-testid="stTextArea"] textarea:focus {

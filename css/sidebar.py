@@ -138,6 +138,27 @@ SIDEBAR_STYLE = """
     box-shadow: inset 0 1px 2px rgba(0,0,0,.25);
 }
 
+/* Wrapper BaseWeb na sidebar (evita contorno vermelho) */
+[data-testid="stSidebar"] [data-testid="stTextInput"] div[data-baseweb="input"],
+[data-testid="stSidebar"] [data-testid="stTextInput"] div[data-baseweb="base-input"] {
+    background: rgba(30,41,59,.75) !important;
+    border: 1px solid rgba(59,130,246,.35) !important;
+    border-radius: 10px !important;
+    box-shadow: inset 0 1px 2px rgba(0,0,0,.25) !important;
+}
+[data-testid="stSidebar"] [data-testid="stTextInput"] div[data-baseweb="input"]:focus-within,
+[data-testid="stSidebar"] [data-testid="stTextInput"] div[data-baseweb="base-input"]:focus-within {
+    outline: none !important;
+    border-color: #3b82f6 !important;
+    box-shadow: 0 0 0 3px rgba(59,130,246,.25) !important;
+}
+[data-testid="stSidebar"] [data-testid="stTextInput"] div[aria-invalid="true"],
+[data-testid="stSidebar"] [data-testid="stTextInput"] div[data-invalid="true"],
+[data-testid="stSidebar"] [data-testid="stTextInput"] input:invalid {
+    border-color: rgba(59,130,246,.55) !important;
+    box-shadow: 0 0 0 3px rgba(59,130,246,.25) !important;
+}
+
 [data-testid="stSidebar"] [data-testid="stTextInput"] input:focus,
 [data-testid="stSidebar"] [data-testid="stNumberInput"] input:focus,
 [data-testid="stSidebar"] [data-testid="stTextArea"] textarea:focus {

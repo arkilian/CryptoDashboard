@@ -75,7 +75,8 @@ def get_historical_price(asset_id: int, target_date: date) -> Optional[float]:
         import time
         
         # DELAY: Adicionar pausa para respeitar rate limit do CoinGecko (10-30 req/min na API gratuita)
-        time.sleep(2)  # 2 segundos entre chamadas = ~30 req/min
+        # Reduced from 2s to 0.5s - still respectful but 4x faster (allows ~30 req/min)
+        time.sleep(0.5)
         
         days_ago = (date.today() - target_date).days
         
@@ -180,7 +181,8 @@ def get_historical_prices_bulk(asset_ids: List[int], target_date: date) -> Dict[
         params=(*asset_ids, target_date)
     )
     
-    result = {int(row['asset_id']): float(row['price_eur']) for _, row in df.iterrows()}
+    # Convert to dictionary efficiently using pandas to_dict
+    result = dict(zip(df['asset_id'].astype(int), df['price_eur'].astype(float)))
     
     if result:
         logger.info(f"✅ Encontrados {len(result)}/{len(asset_ids)} preços na BD para {target_date}")
@@ -241,8 +243,8 @@ def get_historical_prices_by_symbol(symbols: List[str], target_date: date) -> Di
     if df_assets.empty:
         return result
     
-    # Mapear symbol -> asset_id
-    symbol_to_id = {row['symbol']: int(row['asset_id']) for _, row in df_assets.iterrows()}
+    # Mapear symbol -> asset_id efficiently using pandas to_dict
+    symbol_to_id = dict(zip(df_assets['symbol'], df_assets['asset_id'].astype(int)))
     asset_ids = list(symbol_to_id.values())
     
     # Buscar preços históricos por asset_id (com rate limiting)

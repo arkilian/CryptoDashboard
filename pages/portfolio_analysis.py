@@ -7,6 +7,34 @@ from database.connection import get_connection, return_connection, get_engine
 from auth.session_manager import require_auth
 
 
+def _calculate_holdings_vectorized(df_tx):
+    """Calculate holdings using vectorized operations instead of iterrows.
+    
+    Args:
+        df_tx: DataFrame with columns: symbol, quantity, transaction_type
+        
+    Returns:
+        dict: {symbol: net_quantity}
+    """
+    if df_tx.empty:
+        return {}
+    
+    # Create a copy to avoid modifying original
+    df = df_tx.copy()
+    
+    # Convert buys to positive and sells to negative quantities
+    df['signed_qty'] = df.apply(
+        lambda row: row['quantity'] if row['transaction_type'] == 'buy' else -row['quantity'],
+        axis=1
+    )
+    
+    # Group by symbol and sum quantities
+    holdings = df.groupby('symbol')['signed_qty'].sum().to_dict()
+    
+    # Filter out zero or negative holdings
+    return {sym: qty for sym, qty in holdings.items() if qty > 0}
+
+
 @require_auth
 def show():
     """
@@ -33,7 +61,12 @@ def show():
             
             # Adicionar opção "Todos (Fundo Comunitário)" no início
             opcoes = ["💰 Todos (Fundo Comunitário)"]
-            opcoes += [f"{row['username']} ({row['email'] or 'sem email'})" for _, row in df_users.iterrows()]
+            # Use list comprehension with apply for better performance
+            user_options = df_users.apply(
+                lambda row: f"{row['username']} ({row['email'] or 'sem email'})", 
+                axis=1
+            ).tolist()
+            opcoes += user_options
             
             # Selectbox com pesquisa
             selecionado = st.selectbox("🔍 Escolhe uma vista", opcoes)
@@ -43,14 +76,12 @@ def show():
                 user_id = None  # None = todos os utilizadores
                 user_name = "Fundo Comunitário"
             else:
-                # Encontrar ID do utilizador selecionado
-                user_id = None
-                user_name = None
-                for idx, row in df_users.iterrows():
-                    if selecionado == f"{row['username']} ({row['email'] or 'sem email'})":
-                        user_id = row['user_id']
-                        user_name = row['username']
-                        break
+                # Create lookup dictionary for efficient user ID retrieval
+                user_lookup = dict(zip(user_options, df_users['user_id']))
+                user_name_lookup = dict(zip(user_options, df_users['username']))
+                
+                user_id = user_lookup.get(selecionado)
+                user_name = user_name_lookup.get(selecionado)
         else:
             # Utilizador normal só vê o próprio portfólio
             user_id = st.session_state.get("user_id")
@@ -302,21 +333,15 @@ def show():
                                 # Posições até esta data valoradas com preços DESSA DATA (snapshots)
                                 holdings_value = 0.0
                                 if not tx_until.empty:
-                                    holdings = {}
-                                    for _, row in tx_until.iterrows():
-                                        sym = row["symbol"]
-                                        qty = row["quantity"]
-                                        if row["transaction_type"] == "buy":
-                                            holdings[sym] = holdings.get(sym, 0.0) + qty
-                                        else:
-                                            holdings[sym] = holdings.get(sym, 0.0) - qty
+                                    # Use vectorized function to calculate holdings efficiently
+                                    holdings = _calculate_holdings_vectorized(tx_until)
                                     
                                     # Usar preços do cache (já buscados)
                                     historical_prices = prices_cache.get(calc_date, {})
                                     
                                     # Valorizar com preços DA DATA calc_date
                                     for sym, qty in holdings.items():
-                                        if qty > 0 and sym in historical_prices and historical_prices[sym]:
+                                        if sym in historical_prices and historical_prices[sym]:
                                             holdings_value += qty * float(historical_prices[sym])
                                 
                                 saldo_evolution.append(cash + holdings_value)
@@ -408,26 +433,19 @@ def show():
                         # Calcular holdings com preços de HOJE
                         crypto_holdings = []
                         if 'df_all_tx' in locals() and not df_all_tx.empty:
-                            holdings_by_symbol = {}
-                            for _, row in df_all_tx.iterrows():
-                                sym = row["symbol"]
-                                qty = row["quantity"]
-                                if row["transaction_type"] == "buy":
-                                    holdings_by_symbol[sym] = holdings_by_symbol.get(sym, 0.0) + qty
-                                else:
-                                    holdings_by_symbol[sym] = holdings_by_symbol.get(sym, 0.0) - qty
+                            # Use vectorized function to calculate holdings efficiently
+                            holdings_by_symbol = _calculate_holdings_vectorized(df_all_tx)
                             
                             for sym, qty in holdings_by_symbol.items():
-                                if qty > 0:
-                                    price_today = today_prices.get(sym, 0)
-                                    if price_today:
-                                        value_eur = qty * float(price_today)
-                                        crypto_holdings.append({
-                                            "Ativo": sym,
-                                            "Quantidade": qty,
-                                            "Preço Atual (€)": float(price_today),
-                                            "Valor Total (€)": value_eur
-                                        })
+                                price_today = today_prices.get(sym, 0)
+                                if price_today:
+                                    value_eur = qty * float(price_today)
+                                    crypto_holdings.append({
+                                        "Ativo": sym,
+                                        "Quantidade": qty,
+                                        "Preço Atual (€)": float(price_today),
+                                        "Valor Total (€)": value_eur
+                                    })
                         
                         # SALDO ATUAL REAL = caixa + cripto a preços de HOJE
                         crypto_value_today = sum([h["Valor Total (€)"] for h in crypto_holdings])

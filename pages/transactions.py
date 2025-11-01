@@ -93,9 +93,11 @@ def show():
                     format_func=lambda x: "🟢 Compra" if x == "buy" else "🔴 Venda"
                 )
                 
-                # Dropdown de ativos
-                asset_options = {f"{row['symbol']} - {row['name']}": (row['asset_id'], row.get('coingecko_id'))
-                                 for _, row in df_assets.iterrows()}
+                # Dropdown de ativos - optimized using pandas operations
+                asset_options = dict(zip(
+                    df_assets.apply(lambda row: f"{row['symbol']} - {row['name']}", axis=1),
+                    zip(df_assets['asset_id'], df_assets.get('coingecko_id', [None] * len(df_assets)))
+                ))
                 selected_asset = st.selectbox("Ativo", list(asset_options.keys()), key="tx_asset_select")
                 asset_id, asset_cg_id = asset_options[selected_asset]
 
@@ -167,8 +169,8 @@ def show():
                         st.markdown("**💡 Último:**  \n—")
                 
                 if not df_exchanges.empty:
-                    exchange_options = {row['name']: row['exchange_id'] 
-                                      for _, row in df_exchanges.iterrows()}
+                    # Optimized using pandas to_dict
+                    exchange_options = dict(zip(df_exchanges['name'], df_exchanges['exchange_id']))
                     exchange_options["Não especificar"] = None
                     selected_exchange = st.selectbox("Exchange", list(exchange_options.keys()))
                     exchange_id = exchange_options[selected_exchange]

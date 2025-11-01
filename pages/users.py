@@ -60,16 +60,17 @@ def _create_user_selector(df_users, label="🔍 Escolhe um utilizador"):
     
     Returns: (selected_option, user_id)
     """
-    # Create efficient lookup dict
-    user_lookup = {}
-    opcoes = []
-    for _, row in df_users.iterrows():
-        option = f"{row['username']} ({row['email'] or 'sem email'})"
-        opcoes.append(option)
-        user_lookup[option] = row['user_id']
+    # Create options efficiently using pandas apply
+    user_options = df_users.apply(
+        lambda row: f"{row['username']} ({row['email'] or 'sem email'})",
+        axis=1
+    ).tolist()
+    
+    # Create efficient lookup dict using pandas
+    user_lookup = dict(zip(user_options, df_users['user_id']))
     
     # Selectbox
-    selecionado = st.selectbox(label, opcoes)
+    selecionado = st.selectbox(label, user_options)
     user_id = user_lookup.get(selecionado)
     
     return selecionado, user_id

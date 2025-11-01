@@ -55,7 +55,7 @@ def _get_gender_list_cached():
     return df_gender
 
 
-def _create_user_selector(df_users, label="🔍 Escolhe um utilizador"):
+def _create_user_selector(df_users, label="🔍 Escolhe um utilizador", key=None):
     """Create a user selector with efficient lookup.
     
     Returns: (selected_option, user_id)
@@ -70,7 +70,7 @@ def _create_user_selector(df_users, label="🔍 Escolhe um utilizador"):
     user_lookup = dict(zip(user_options, df_users['user_id']))
     
     # Selectbox
-    selecionado = st.selectbox(label, user_options)
+    selecionado = st.selectbox(label, user_options, key=key)
     user_id = user_lookup.get(selecionado)
     
     return selecionado, user_id
@@ -96,28 +96,26 @@ def show():
         conn = get_connection()
         cursor = conn.cursor()
         
-        # Inicializar submenu no session_state se não existir
-        if "users_submenu" not in st.session_state:
-            st.session_state["users_submenu"] = "📋 Ver Utilizadores"
-        
-        # Submenu com valor do session_state
-        submenu = st.sidebar.radio(
-            "Ações de Utilizador",
-            ["📋 Ver Utilizadores", "✏️ Modificar Utilizador", "➕ Adicionar Utilizador", "💰 Dados Financeiros"],
-            index=["📋 Ver Utilizadores", "✏️ Modificar Utilizador", "➕ Adicionar Utilizador", "💰 Dados Financeiros"].index(st.session_state["users_submenu"])
-        )
-        
-        # Atualizar session_state com a seleção atual
-        st.session_state["users_submenu"] = submenu
+        # Criar tabs para diferentes seções
+        tab1, tab2, tab3, tab4 = st.tabs([
+            "📋 Ver Utilizadores", 
+            "✏️ Modificar Utilizador", 
+            "➕ Adicionar Utilizador", 
+            "💰 Dados Financeiros"
+        ])
 
-        if submenu == "📋 Ver Utilizadores":
+        with tab1:
             _show_users_list(conn)
-        elif submenu == "✏️ Modificar Utilizador":
+        
+        with tab2:
             _modify_user(conn, cursor)
-        elif submenu == "➕ Adicionar Utilizador":
+        
+        with tab3:
             _add_user(conn, cursor)
-        elif submenu == "💰 Dados Financeiros":
+        
+        with tab4:
             _financial_data(conn, cursor)
+            
     finally:
         if cursor:
             cursor.close()
@@ -147,7 +145,7 @@ def _modify_user(conn, cursor):
     
     # Use cached users list
     df_users = _get_users_list_cached()
-    selecionado, user_id = _create_user_selector(df_users, "🔍 Escolhe um utilizador para editar")
+    selecionado, user_id = _create_user_selector(df_users, "🔍 Escolhe um utilizador para editar", key="modify_user_selector")
 
     if user_id:
         cursor.execute("SELECT username FROM t_users WHERE user_id = %s", (user_id,))
@@ -172,8 +170,8 @@ def _modify_user(conn, cursor):
 
         st.markdown("---")
         st.subheader("📝 Editar dados do utilizador")
-        novo_username = st.text_input("Username", value=username_atual)
-        novo_email = st.text_input("Email", value=email or "")
+        novo_username = st.text_input("Username", value=username_atual, key="modify_username")
+        novo_email = st.text_input("Email", value=email or "", key="modify_email")
         
         # Password (opcional - só atualiza se preenchida)
         st.markdown("**🔐 Password** (deixe em branco para manter a atual)")
@@ -190,13 +188,14 @@ def _modify_user(conn, cursor):
                 st.success("✅ Passwords válidas")
 
         st.subheader("🧍 Editar perfil")
-        novo_first_name = st.text_input("Primeiro nome", value=first_name or "")
-        novo_last_name = st.text_input("Último nome", value=last_name or "")
+        novo_first_name = st.text_input("Primeiro nome", value=first_name or "", key="modify_first_name")
+        novo_last_name = st.text_input("Último nome", value=last_name or "", key="modify_last_name")
         nova_birth_date = st.date_input(
             "📅 Data de nascimento",
             value=birth_date or datetime.date(2000, 1, 1),
             min_value=datetime.date(1950, 1, 1),
-            max_value=datetime.date(date.today().year + 10, 12, 31)
+            max_value=datetime.date(date.today().year + 10, 12, 31),
+            key="modify_birth_date"
         )
 
         # Use cached gender list
@@ -205,16 +204,17 @@ def _modify_user(conn, cursor):
         genero_selecionado = st.selectbox(
             "Género",
             genero_opcoes,
-            index=genero_opcoes.index(gender_name) if gender_name in genero_opcoes else 0
+            index=genero_opcoes.index(gender_name) if gender_name in genero_opcoes else 0,
+            key="modify_gender_selector"
         )
 
         st.subheader("🏠 Morada")
-        novo_street = st.text_input("Rua", value=street or "")
-        novo_city = st.text_input("Cidade", value=city or "")
-        novo_postal = st.text_input("Código Postal", value=postal_code or "")
-        novo_country = st.text_input("País", value=country or "")
+        novo_street = st.text_input("Rua", value=street or "", key="modify_street")
+        novo_city = st.text_input("Cidade", value=city or "", key="modify_city")
+        novo_postal = st.text_input("Código Postal", value=postal_code or "", key="modify_postal")
+        novo_country = st.text_input("País", value=country or "", key="modify_country")
 
-        if st.button("💾 Salvar"):
+        if st.button("💾 Salvar", key="modify_save_button"):
             # Validar password se foi preenchida
             if nova_password or confirma_password:
                 if nova_password != confirma_password:
@@ -262,6 +262,11 @@ def _modify_user(conn, cursor):
 
                 conn.commit()
                 st.success("✅ Utilizador atualizado com sucesso!")
+                # Limpar cache de utilizadores após modificação
+                if "users_list_cache" in st.session_state:
+                    del st.session_state["users_list_cache"]
+                if "users_list_cache_time" in st.session_state:
+                    del st.session_state["users_list_cache_time"]
                 st.rerun()
             except Exception as e:
                 conn.rollback()
@@ -272,8 +277,8 @@ def _add_user(conn, cursor):
     """Adicionar novo utilizador"""
     st.subheader("➕ Adicionar Novo Utilizador")
 
-    novo_username = st.text_input("👤 Username")
-    novo_email = st.text_input("📧 Email")
+    novo_username = st.text_input("👤 Username", key="add_username")
+    novo_email = st.text_input("📧 Email", key="add_email")
     
     # Password obrigatória para novo utilizador
     st.markdown("---")
@@ -294,26 +299,27 @@ def _add_user(conn, cursor):
 
     st.markdown("---")
     st.subheader("🧍 Dados de Perfil")
-    first_name = st.text_input("Primeiro Nome")
-    last_name = st.text_input("Último Nome")
+    first_name = st.text_input("Primeiro Nome", key="add_first_name")
+    last_name = st.text_input("Último Nome", key="add_last_name")
     birth_date = st.date_input(
         "Data de Nascimento",
         min_value=datetime.date(1950, 1, 1),
-        max_value=datetime.date(date.today().year + 10, 12, 31)
+        max_value=datetime.date(date.today().year + 10, 12, 31),
+        key="add_birth_date"
     )
 
     # Use cached gender list
     df_gender = _get_gender_list_cached()
     genero_opcoes = df_gender["gender_name"].tolist()
-    genero_selecionado = st.selectbox("Género", genero_opcoes)
+    genero_selecionado = st.selectbox("Género", genero_opcoes, key="add_gender_selector")
 
     st.subheader("🏠 Morada")
-    street = st.text_input("Rua")
-    city = st.text_input("Cidade")
-    postal_code = st.text_input("Código Postal")
-    country = st.text_input("País")
+    street = st.text_input("Rua", key="add_street")
+    city = st.text_input("Cidade", key="add_city")
+    postal_code = st.text_input("Código Postal", key="add_postal")
+    country = st.text_input("País", key="add_country")
 
-    if st.button("➕ Adicionar"):
+    if st.button("➕ Adicionar", key="add_user_button"):
         # Validar campos obrigatórios
         if not novo_username or not novo_email or not nova_password:
             st.warning("⚠️ Preenche todos os campos obrigatórios (Username, Email e Password).")
@@ -369,9 +375,11 @@ def _add_user(conn, cursor):
 
                 conn.commit()
                 st.success("✅ Utilizador adicionado com sucesso!")
-                # Redirecionar para Ver Utilizadores
-                st.session_state["users_submenu"] = "📋 Ver Utilizadores"
-                st.rerun()
+                # Limpar cache de utilizadores após adicionar
+                if "users_list_cache" in st.session_state:
+                    del st.session_state["users_list_cache"]
+                if "users_list_cache_time" in st.session_state:
+                    del st.session_state["users_list_cache_time"]
             else:
                 st.warning("⚠️ Já existe um utilizador com esse username ou email.")
         except Exception as e:
@@ -385,7 +393,7 @@ def _financial_data(conn, cursor):
 
     # Use cached users list
     df_users = _get_users_list_cached()
-    selecionado, user_id = _create_user_selector(df_users, "🔍 Escolhe um utilizador")
+    selecionado, user_id = _create_user_selector(df_users, "🔍 Escolhe um utilizador", key="financial_user_selector")
 
     # Verifica se o utilizador selecionado é admin (sem IDs hardcoded)
     is_selected_admin = False
@@ -448,14 +456,15 @@ def _financial_data(conn, cursor):
                 "📅 Data do movimento",
                 value=date.today(),
                 min_value=datetime.date(2000, 1, 1),
-                max_value=datetime.date(date.today().year + 10, 12, 31)
+                max_value=datetime.date(date.today().year + 10, 12, 31),
+                key="financial_movement_date"
             )
 
         # --- Formulário de Depósito ---
         with st.expander("💰 Novo Depósito"):
             valor_dep = st.number_input("Valor a depositar", min_value=0.0, step=0.01, key="dep_val")
             descricao_dep = st.text_input("Descrição do depósito", key="dep_desc")
-            if st.button("Confirmar Depósito"):
+            if st.button("Confirmar Depósito", key="financial_confirm_deposit"):
                 try:
                     if valor_dep <= 0:
                         st.warning("Informe um valor de depósito maior que zero.")
@@ -495,7 +504,7 @@ def _financial_data(conn, cursor):
         with st.expander("💸 Novo Levantamento"):
             valor_lev = st.number_input("Valor a levantar", min_value=0.0, step=0.01, key="lev_val")
             descricao_lev = st.text_input("Descrição do levantamento", key="lev_desc")
-            if st.button("Confirmar Levantamento"):
+            if st.button("Confirmar Levantamento", key="financial_confirm_withdrawal"):
                 try:
                     if valor_lev <= 0:
                         st.warning("Informe um valor de levantamento maior que zero.")

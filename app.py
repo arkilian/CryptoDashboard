@@ -35,18 +35,33 @@ def main():
     # Navegação de páginas de autenticação
     page = st.session_state["page"]
 
+    # Aplicar estilos também nas páginas de login/registo
+    if page in ["login", "register"]:
+        st.markdown(get_app_base_style(), unsafe_allow_html=True)
+        st.markdown(get_forms_style(), unsafe_allow_html=True)
+    
     if page == "login":
         show_login_page()
-        if st.button("Não tens conta? Criar nova conta", key="btn_to_register"):
-            st.session_state.page = "register"
-            st.rerun()
+        
+        # Botão para criar conta centralizado
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("Não tens conta? Criar nova conta", key="btn_to_register", use_container_width=True):
+                st.session_state.page = "register"
+                st.rerun()
         return
 
     if page == "register":
         show_register_page()
-        if st.button("Já tens conta? Fazer login", key="btn_to_login"):
-            st.session_state.page = "login"
-            st.rerun()
+        
+        # Botão para voltar ao login centralizado
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("Já tens conta? Fazer login", key="btn_to_login", use_container_width=True):
+                st.session_state.page = "login"
+                st.rerun()
         return
 
     # Paginas protegidas

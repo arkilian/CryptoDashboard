@@ -56,17 +56,17 @@ TABLES_STYLE = """
 }
 
 [data-testid="stDataFrame"] tbody tr:hover {
-    background: rgba(59, 130, 246, 0.1) !important;
+    background: rgba(59, 130, 246, 0.15) !important;
     transform: scale(1.01);
     box-shadow: 0 2px 8px rgba(59, 130, 246, 0.2);
 }
 
 [data-testid="stDataFrame"] tbody tr:nth-child(even) {
-    background: rgba(30, 41, 59, 0.3);
+    background: rgba(30, 41, 59, 0.6) !important;
 }
 
 [data-testid="stDataFrame"] tbody tr:nth-child(odd) {
-    background: rgba(15, 23, 42, 0.3);
+    background: rgba(15, 23, 42, 0.8) !important;
 }
 
 /* ========================================

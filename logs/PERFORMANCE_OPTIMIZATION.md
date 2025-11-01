@@ -87,7 +87,7 @@ This document describes the performance optimizations applied to the CryptoDashb
 - Reduced CPU usage on database
 
 **Files Changed**:
-- `database/migrations/004_add_performance_indexes.sql`
+- `database/tablesv2.sql` (indexes consolidated; legacy migration file deprecated)
 
 ### 5. Inefficient API Caching
 
@@ -198,14 +198,12 @@ Run tests with:
 python -m unittest tests/test_performance_optimizations.py -v
 ```
 
-## Migration Guide
+## Schema Application (no runtime migrations)
 
-To apply the database indexes:
-```bash
-python database/run_migrations.py
-```
+Since November 2025, runtime migrations were removed. The database schema, including these performance indexes, is defined in `database/tablesv2.sql`.
 
-This will run the new migration `004_add_performance_indexes.sql`.
+- For new setups: apply the full schema by executing `database/tablesv2.sql` in your PostgreSQL database.
+- For existing databases: apply the relevant `CREATE INDEX` statements from `database/tablesv2.sql` manually (or extract them to a one-off SQL script) — do not use `run_migrations.py`.
 
 ## Best Practices Going Forward
 

@@ -85,7 +85,7 @@ Successfully identified and resolved multiple performance bottlenecks in the Cry
 | `services/fees.py` | +87 -87 | Resource management |
 | `services/coingecko.py` | +17 -12 | Cache TTL improvements |
 | `pages/portfolio.py` | +16 -9 | DataFrame optimization |
-| `database/migrations/004_add_performance_indexes.sql` | +28 | Performance indexes |
+| `database/tablesv2.sql` | +28 | Performance indexes consolidated (replaced legacy migration) |
 | `tests/test_performance_optimizations.py` | +315 | Comprehensive tests |
 | `PERFORMANCE_OPTIMIZATION.md` | +272 | Documentation |
 
@@ -123,14 +123,12 @@ All tests pass and validate correctness while ensuring performance improvements.
 - Resource cleanup prevents leaks
 - No security regressions introduced
 
-## Migration Required
+## Schema Update (no runtime migrations)
 
-To apply database indexes:
-```bash
-python database/run_migrations.py
-```
+Runtime migrations have been removed. The schema (including these indexes) is defined in `database/tablesv2.sql`.
 
-This runs `004_add_performance_indexes.sql` which adds 9 strategic indexes.
+- New databases: execute `database/tablesv2.sql` directly.
+- Existing databases: apply the `CREATE INDEX` statements from `tablesv2.sql` manually as a one-off. Do not run `run_migrations.py`.
 
 ## Documentation
 

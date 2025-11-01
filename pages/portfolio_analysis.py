@@ -519,8 +519,8 @@ def show():
                                 use_container_width=True,
                                 hide_index=True,
                                 column_config={
-                                    "Quantidade": st.column_config.NumberColumn(format="%.8f"),
-                                    "Preço Atual (€)": st.column_config.NumberColumn(format="€%.6f"),
+                                    "Quantidade": st.column_config.NumberColumn(format="%.6f"),
+                                    "Preço Atual (€)": st.column_config.NumberColumn(format="€%.4f"),
                                     "Valor Total (€)": st.column_config.NumberColumn(format="€%.2f"),
                                     "% do Portfólio": st.column_config.NumberColumn(format="%.2f%%")
                                 }
@@ -598,7 +598,7 @@ def show():
                             use_container_width=True,
                             hide_index=True,
                             column_config={
-                                'Shares': st.column_config.NumberColumn(format="%.6f"),
+                                'Shares': st.column_config.NumberColumn(format="%.2f"),
                                 'Propriedade (%)': st.column_config.NumberColumn(format="%.2f%%"),
                                 'Valor (€)': st.column_config.NumberColumn(format="€%.2f")
                             }

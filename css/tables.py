@@ -6,28 +6,31 @@ Design moderno e elegante com melhor legibilidade
 TABLES_STYLE = """
 <style>
 /* ========================================
-   DATAFRAMES - Estilo geral
+   TABELAS (st.dataframe e st.table) - Estilo geral
    ======================================== */
-[data-testid="stDataFrame"] {
+[data-testid="stDataFrame"],
+[data-testid="stTable"] {
     background: linear-gradient(135deg, rgba(15, 23, 42, 0.6), rgba(30, 41, 59, 0.6));
     border-radius: 12px;
     padding: 1rem;
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
 }
 
-/* Tabela */
-[data-testid="stDataFrame"] table {
+/* Tabela base */
+[data-testid="stDataFrame"] table,
+[data-testid="stTable"] table {
     border-collapse: separate;
     border-spacing: 0;
     width: 100%;
-    border-radius: 8px;
+    border-radius: 10px;
     overflow: hidden;
 }
 
 /* ========================================
    CABEÇALHO DA TABELA
    ======================================== */
-[data-testid="stDataFrame"] thead th {
+[data-testid="stDataFrame"] thead th,
+[data-testid="stTable"] thead th {
     background: linear-gradient(135deg, #1e40af, #3b82f6) !important;
     color: white !important;
     font-weight: 600 !important;
@@ -37,13 +40,18 @@ TABLES_STYLE = """
     padding: 1rem 0.75rem !important;
     border: none !important;
     text-align: left !important;
+    position: sticky;
+    top: 0;
+    z-index: 2;
 }
 
-[data-testid="stDataFrame"] thead th:first-child {
+[data-testid="stDataFrame"] thead th:first-child,
+[data-testid="stTable"] thead th:first-child {
     border-top-left-radius: 8px;
 }
 
-[data-testid="stDataFrame"] thead th:last-child {
+[data-testid="stDataFrame"] thead th:last-child,
+[data-testid="stTable"] thead th:last-child {
     border-top-right-radius: 8px;
 }
 
@@ -55,35 +63,48 @@ TABLES_STYLE = """
     border-bottom: 1px solid rgba(148, 163, 184, 0.1);
 }
 
-[data-testid="stDataFrame"] tbody tr:hover {
+[data-testid="stDataFrame"] tbody tr,
+[data-testid="stTable"] tbody tr {
     background: rgba(59, 130, 246, 0.15) !important;
     transform: scale(1.01);
     box-shadow: 0 2px 8px rgba(59, 130, 246, 0.2);
-}
 
+[data-testid="stDataFrame"] tbody tr:hover,
+[data-testid="stTable"] tbody tr:hover {
 [data-testid="stDataFrame"] tbody tr:nth-child(even) {
-    background: rgba(30, 41, 59, 0.6) !important;
+    transform: translateX(2px);
 }
 
-[data-testid="stDataFrame"] tbody tr:nth-child(odd) {
-    background: rgba(15, 23, 42, 0.8) !important;
+
+[data-testid="stDataFrame"] tbody tr:nth-child(even),
+[data-testid="stTable"] tbody tr:nth-child(even) {
 }
 
-/* ========================================
-   CÉLULAS DA TABELA
+
+[data-testid="stDataFrame"] tbody tr:nth-child(odd),
+[data-testid="stTable"] tbody tr:nth-child(odd) {
    ======================================== */
-[data-testid="stDataFrame"] tbody td {
+[data-testid="stDataFrame"] tbody td,
+[data-testid="stTable"] tbody td {
     padding: 0.85rem 0.75rem !important;
     color: #e2e8f0 !important;
     font-size: 0.9rem !important;
     border: none !important;
+    font-variant-numeric: tabular-nums;
 }
 
 /* Primeira coluna com destaque */
-[data-testid="stDataFrame"] tbody td:first-child {
+[data-testid="stDataFrame"] tbody td:first-child,
+[data-testid="stTable"] tbody td:first-child {
     font-weight: 600;
     color: #60a5fa !important;
 }
+
+/* Borda inferior arredondada na última linha */
+[data-testid="stDataFrame"] tbody tr:last-child td:first-child,
+[data-testid="stTable"] tbody tr:last-child td:first-child { border-bottom-left-radius: 10px; }
+[data-testid="stDataFrame"] tbody tr:last-child td:last-child,
+[data-testid="stTable"] tbody tr:last-child td:last-child { border-bottom-right-radius: 10px; }
 
 /* ========================================
    TABELAS EDITÁVEIS (data_editor)

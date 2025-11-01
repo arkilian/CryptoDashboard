@@ -162,8 +162,7 @@ Session Cache (Memória) → Database Cache (PostgreSQL) → CoinGecko API
 
 ### Ficheiros de Referência no Projeto
 
-- `database/tables.sql` - Schema completo da BD
-- `database/migrations/` - Migrações (especialmente 007_add_user_shares.sql)
+- `database/tablesv2.sql` - Schema completo da BD (V2)
 - `services/shares.py` - Lógica core de shares/NAV
 - `services/snapshots.py` - Sistema de cache de preços
 - `services/coingecko.py` - Cliente API

@@ -10,7 +10,6 @@ from database.connection import get_engine
 from sqlalchemy import text
 import requests
 from utils.tags import ensure_default_tags, get_all_tags, build_tags_where_clause, set_transaction_tags
-from database.migrations import ensure_transactions_account_column
 from components.transaction_form_v2 import render_transaction_form
 
 def show():
@@ -34,11 +33,6 @@ def show():
     # Ensure tags tables and defaults exist
     try:
         ensure_default_tags(engine)
-    except Exception:
-        pass
-    # Ensure t_transactions.account_id exists (best effort)
-    try:
-        ensure_transactions_account_column()
     except Exception:
         pass
 

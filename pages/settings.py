@@ -4,7 +4,6 @@ from services.fees import get_current_fee_settings, update_fee_settings, get_fee
 from database.connection import get_engine
 from sqlalchemy import text
 from utils.tags import ensure_default_tags, get_all_tags
-from database.migrations import ensure_exchange_accounts_category_column
 
 def show_settings_page():
     st.title("⚙️ Configurações do Fundo")
@@ -225,11 +224,6 @@ def show_settings_page():
 
         st.divider()
         st.subheader("🏷️ Contas por Exchange (categoria)")
-        # Garantir coluna account_category
-        try:
-            ensure_exchange_accounts_category_column()
-        except Exception:
-            pass
 
         # Selecionar exchange para gerir contas
         if not df_exchanges.empty:

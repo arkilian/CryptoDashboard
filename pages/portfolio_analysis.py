@@ -7,7 +7,6 @@ from database.connection import get_connection, return_connection, get_engine
 from auth.session_manager import require_auth
 from css.charts import apply_theme
 from utils.tags import ensure_default_tags, get_all_tags, build_tags_where_clause
-from database.migrations import ensure_transactions_account_column
 
 
 def _calculate_holdings_vectorized(df_tx):
@@ -57,11 +56,6 @@ def show():
             ensure_default_tags(engine)
         except Exception:
             pass
-        try:
-            ensure_transactions_account_column()
-        except Exception:
-            pass
-        
         # Verificar se é admin para mostrar seletor de utilizadores
         is_admin = st.session_state.get("is_admin", False)
         

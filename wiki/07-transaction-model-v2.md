@@ -458,20 +458,15 @@ O modelo atual **NÃO rastreia automaticamente dívidas**. Se precisares:
 
 ---
 
-## 🛠️ Migração Automática
+## 🛠️ Setup
 
-A migration `apply_transaction_model_v2()` faz:
+A tabela `t_transactions` com todas as colunas V2 (e legado compatível) é criada no ficheiro `database/tablesv2.sql`. Para inicializar o ambiente, aplique esse ficheiro ao PostgreSQL:
 
-1. ✅ Adiciona novas colunas à `t_transactions`
-2. ✅ Cria índices para performance
-3. ✅ Adiciona EUR como asset
-4. ✅ Cria exchange "Banco"
-5. ✅ Migra transações `buy`/`sell` antigas para novo formato
-6. ✅ É **IDEMPOTENTE** (pode executar múltiplas vezes)
+```bash
+psql -U crypto_user -d crypto_dashboard -f database/tablesv2.sql
+```
 
-Executada automaticamente no startup do `app.py`.
-
----
+Isso criará todas as tabelas, colunas, índices necessários, bem como inserirá o asset EUR e a exchange especial "Banco". Não há migrações em runtime; o schema é gerido manualmente ou através de novos scripts SQL conforme necessário.
 
 ## 📋 Próximos Passos
 

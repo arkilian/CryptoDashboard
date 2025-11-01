@@ -74,11 +74,7 @@ CryptoDashboard/
 │   ├── connection.py               # Pool de conexões PostgreSQL
 │   ├── users.py                    # Queries relacionadas a utilizadores
 │   ├── portfolio.py                # Queries de portfólio
-│   ├── tables.sql                  # Schema inicial da BD
-│   └── migrations/                 # Migrações de schema
-│       ├── 001_*.sql
-│       ├── 007_add_user_shares.sql
-│       └── ...
+│   └── tablesv2.sql                # Schema completo da BD (V2)
 │
 ├── pages/                          # Páginas da aplicação (routing)
 │   ├── analytics.py                # Página de análise (legacy)
@@ -225,7 +221,7 @@ Notas:
 - Existe a exchange especial "Banco" (categoria FIAT) para movimentos em EUR fora das exchanges.
 - A coluna `name` foi adicionada a `t_exchange_accounts` para identificar cada conta (ex.: Spot, Earn, Wallet).
 - As colunas legacy foram tornadas NULLABLE e continuam suportadas para compatibilidade.
-- A migração automática é aplicada no arranque (ver `apply_transaction_model_v2()` e `app.py`).
+- O schema completo V2 está em `database/tablesv2.sql` e deve ser aplicado uma única vez no setup inicial.
 
 #### Cache de Preços ⭐
 ```sql
@@ -588,11 +584,8 @@ SECRET_KEY=random_string_for_sessions
 # Instalar dependências
 pip install -r requirements.txt
 
-# Inicializar BD
-psql -U user -d dbname -f database/tables.sql
-
-# Executar migrações
-python database/migrations/run_migration_007.py
+# Inicializar BD aplicando schema V2
+psql -U user -d dbname -f database/tablesv2.sql
 
 # Lançar aplicação
 streamlit run app.py --server.port 8501

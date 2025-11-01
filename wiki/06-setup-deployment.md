@@ -155,13 +155,13 @@ COINGECKO_BASE_URL = 'https://api.coingecko.com/api/v3'
 
 **Executar Script de Setup**:
 ```bash
-psql -U crypto_user -d crypto_dashboard -f database/tables.sql
+psql -U crypto_user -d crypto_dashboard -f database/tablesv2.sql
 ```
 
 **Ou via Python**:
 ```python
 from database.connection import get_connection
-with open('database/tables.sql', 'r') as f:
+with open('database/tablesv2.sql', 'r') as f:
     sql = f.read()
     conn = get_connection()
     cur = conn.cursor()
@@ -169,27 +169,9 @@ with open('database/tables.sql', 'r') as f:
     conn.commit()
 ```
 
-### 8. Executar Migrações
+### 8. Esquema da Base de Dados
 
-**Migração Crítica - Shares System**:
-```bash
-python database/migrations/run_migration_007.py
-```
-
-**Verificar Migrações**:
-```sql
-SELECT * FROM information_schema.tables 
-WHERE table_schema = 'public';
-
--- Deve ver:
--- t_users
--- t_user_profile
--- t_user_capital_movements
--- t_user_shares ← IMPORTANTE
--- t_assets
--- t_transactions
--- t_price_snapshots ← IMPORTANTE
-```
+Nesta versão, não há migrações em runtime. Para iniciar ou atualizar o ambiente de desenvolvimento/teste, aplique o ficheiro `database/tablesv2.sql`, que contém o schema completo e seeds essenciais (EUR e a exchange especial Banco).
 
 ### 9. Criar Utilizador Admin Inicial
 
@@ -426,8 +408,7 @@ ENVIRONMENT=production
 **7. Inicializar BD**:
 ```bash
 source .venv/bin/activate
-psql -U crypto_user -d crypto_dashboard -f database/tables.sql
-python database/migrations/run_migration_007.py
+psql -U crypto_user -d crypto_dashboard -f database/tablesv2.sql
 ```
 
 **8. Criar serviço systemd**:
@@ -935,21 +916,9 @@ pip install -r requirements.txt --upgrade
 systemctl restart crypto-dashboard
 ```
 
-### Executar Nova Migração
+### Atualizar o Esquema
 
-```bash
-cd /opt/CryptoDashboard
-source .venv/bin/activate
-
-# Backup primeiro!
-pg_dump -U crypto_user crypto_dashboard > /tmp/backup_before_migration.sql
-
-# Executar migração
-python database/migrations/run_migration_XXX.py
-
-# Verificar
-systemctl restart crypto-dashboard
-```
+Para desenvolvimento, a forma mais simples é recriar a base de dados aplicando novamente `database/tablesv2.sql`. Em produção, avalie cuidadosamente e crie scripts SQL de alteração explícitos conforme necessário.
 
 ---
 

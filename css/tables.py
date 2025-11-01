@@ -82,6 +82,7 @@ TABLES_STYLE = """
 
 /* ========================================
    CÉLULAS DA TABELA
+   ======================================== */
 [data-testid="stDataFrame"] tbody td,
 [data-testid="stTable"] tbody td {
     padding: 0.85rem 0.75rem !important;

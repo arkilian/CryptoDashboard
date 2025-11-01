@@ -63,27 +63,25 @@ TABLES_STYLE = """
     border-bottom: 1px solid rgba(148, 163, 184, 0.1);
 }
 
-[data-testid="stDataFrame"] tbody tr,
-[data-testid="stTable"] tbody tr {
+[data-testid="stDataFrame"] tbody tr:hover,
+[data-testid="stTable"] tbody tr:hover {
     background: rgba(59, 130, 246, 0.15) !important;
     transform: scale(1.01);
     box-shadow: 0 2px 8px rgba(59, 130, 246, 0.2);
-
-[data-testid="stDataFrame"] tbody tr:hover,
-[data-testid="stTable"] tbody tr:hover {
-[data-testid="stDataFrame"] tbody tr:nth-child(even) {
-    transform: translateX(2px);
 }
-
 
 [data-testid="stDataFrame"] tbody tr:nth-child(even),
 [data-testid="stTable"] tbody tr:nth-child(even) {
+    background: rgba(30, 41, 59, 0.4) !important;
 }
-
 
 [data-testid="stDataFrame"] tbody tr:nth-child(odd),
 [data-testid="stTable"] tbody tr:nth-child(odd) {
-   ======================================== */
+    background: rgba(30, 41, 59, 0.2) !important;
+}
+
+/* ========================================
+   CÉLULAS DA TABELA
 [data-testid="stDataFrame"] tbody td,
 [data-testid="stTable"] tbody td {
     padding: 0.85rem 0.75rem !important;

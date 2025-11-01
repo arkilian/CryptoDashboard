@@ -9,6 +9,7 @@ from pages.snapshots import show as show_snapshots_page
 from pages.documents import show as show_documents_page
 from pages.users import show as show_users_page
 from pages.transactions import show as show_transactions_page
+from css.sidebar import get_sidebar_style
 
 def main():
     st.set_page_config(page_title="Crypto Dashboard", page_icon="🔒", layout="wide")
@@ -53,8 +54,25 @@ def main():
     
     # Se está aqui, usuário autenticado
     #st.write(st.session_state)
-    st.sidebar.title(f"👤 {st.session_state['username']}")
+    
+    # Aplicar CSS customizado da sidebar
+    st.markdown(get_sidebar_style(), unsafe_allow_html=True)
+    
+    # Username no topo da sidebar
+    st.sidebar.markdown(f"""
+    <div class="sidebar-username">
+        <h3 style="margin: 0; color: white;">👤 {st.session_state['username']}</h3>
+        <p style="margin: 0.3rem 0 0 0; color: rgba(255,255,255,0.7); font-size: 0.85rem;">
+            {'🔑 Administrador' if st.session_state.get('is_admin', False) else '👥 Utilizador'}
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+    
     is_admin = st.session_state.get("is_admin", False)
+    
+    # Inicializar menu_selection no session_state
+    if "menu_selection" not in st.session_state:
+        st.session_state["menu_selection"] = "📊 Análise de Portfólio"
 
     # Menu comum para todos os usuários
     menu_options = [
@@ -71,9 +89,21 @@ def main():
         menu_options.insert(1, "💰 Transações")  # Adiciona depois de Utilizadores
         menu_options.insert(-1, "⚙️ Configurações")
     
-    menu_options.append("🚪 Sair")
+    # Criar botões estilizados para cada opção
+    st.sidebar.markdown("### 📋 Menu")
+    for option in menu_options:
+        if st.sidebar.button(option, key=f"menu_{option}", use_container_width=True):
+            st.session_state["menu_selection"] = option
+            st.rerun()
     
-    menu = st.sidebar.radio("Navegação", menu_options)
+    # Botão de sair separado
+    st.sidebar.markdown("---")
+    if st.sidebar.button("🚪 Sair", key="menu_logout", use_container_width=True, type="secondary"):
+        st.session_state.clear()
+        st.session_state["page"] = "login"
+        st.rerun()
+    
+    menu = st.session_state["menu_selection"]
 
     if menu == "👤 Utilizadores" and is_admin:
         show_users_page()

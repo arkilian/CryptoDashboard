@@ -79,7 +79,7 @@ def show_settings_page():
                 step=0.5
             ) / 100
 
-        if st.button("💾 Atualizar Taxas", type="primary", use_container_width=True):
+        if st.button("Atualizar Taxas", type="primary", use_container_width=True):
             update_fee_settings(new_maintenance, new_minimum, new_performance)
             st.success("✅ Nova configuração de taxas aplicada com sucesso!")
             st.rerun()
@@ -137,7 +137,7 @@ def show_settings_page():
             new_chain = st.text_input("Blockchain", placeholder="Ex: Bitcoin, Ethereum, Cardano")
             new_is_stablecoin = st.checkbox("É uma stablecoin?")
         
-        if st.button("💾 Adicionar Ativo", type="primary", use_container_width=True):
+        if st.button("Adicionar Ativo", type="primary", use_container_width=True):
             if not new_symbol:
                 st.error("❌ O símbolo é obrigatório!")
             else:
@@ -202,7 +202,7 @@ def show_settings_page():
                 ["CEX", "Wallet", "DeFi", "Outro"]
             )
         
-        if st.button("💾 Adicionar Exchange", type="primary", use_container_width=True):
+        if st.button("Adicionar Exchange", type="primary", use_container_width=True):
             if not new_exchange_name:
                 st.error("❌ O nome da exchange é obrigatório!")
             else:

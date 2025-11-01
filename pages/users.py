@@ -214,7 +214,7 @@ def _modify_user(conn, cursor):
         novo_postal = st.text_input("Código Postal", value=postal_code or "", key="modify_postal")
         novo_country = st.text_input("País", value=country or "", key="modify_country")
 
-        if st.button("💾 Salvar", key="modify_save_button"):
+        if st.button("Salvar", key="modify_save_button"):
             # Validar password se foi preenchida
             if nova_password or confirma_password:
                 if nova_password != confirma_password:

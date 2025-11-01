@@ -122,6 +122,76 @@ SIDEBAR_STYLE = """
 [data-testid="stSidebar"] ::-webkit-scrollbar-thumb:hover {
     background: rgba(59, 130, 246, 0.8);
 }
+
+/* ========================================
+   WIDGETS NA SIDEBAR (Inputs, Selects, Date, etc.)
+   Mantêm consistência com css/forms.py
+   ======================================== */
+/* Text / Number / TextArea */
+[data-testid="stSidebar"] [data-testid="stTextInput"] input,
+[data-testid="stSidebar"] [data-testid="stNumberInput"] input,
+[data-testid="stSidebar"] [data-testid="stTextArea"] textarea {
+    background: rgba(30,41,59,.75) !important;
+    color: #e2e8f0 !important;
+    border: 1px solid rgba(59,130,246,.35) !important;
+    border-radius: 10px !important;
+    box-shadow: inset 0 1px 2px rgba(0,0,0,.25);
+}
+
+[data-testid="stSidebar"] [data-testid="stTextInput"] input:focus,
+[data-testid="stSidebar"] [data-testid="stNumberInput"] input:focus,
+[data-testid="stSidebar"] [data-testid="stTextArea"] textarea:focus {
+    outline: none !important;
+    border-color: #3b82f6 !important;
+    box-shadow: 0 0 0 3px rgba(59,130,246,.25) !important;
+}
+
+/* Selects e MultiSelect */
+[data-testid="stSidebar"] [data-testid="stSelectbox"] div[data-baseweb="select"] > div,
+[data-testid="stSidebar"] [data-testid="stMultiSelect"] div[data-baseweb="select"] > div {
+    background: rgba(30,41,59,.75) !important;
+    color: #e2e8f0 !important;
+    border: 1px solid rgba(59,130,246,.35) !important;
+    border-radius: 10px !important;
+}
+
+[data-testid="stSidebar"] [data-baseweb="menu"] {
+    background: rgba(15,23,42,.98) !important;
+    border: 1px solid rgba(59,130,246,.25) !important;
+}
+[data-testid="stSidebar"] [data-baseweb="option"] { color: #e2e8f0 !important; }
+[data-testid="stSidebar"] [data-baseweb="option"]:hover { background: rgba(59,130,246,.20) !important; }
+
+/* Date Input */
+[data-testid="stSidebar"] [data-testid="stDateInput"] input {
+    background: rgba(30,41,59,.75) !important;
+    color: #e2e8f0 !important;
+    border: 1px solid rgba(59,130,246,.35) !important;
+    border-radius: 10px !important;
+}
+[data-testid="stSidebar"] [data-testid="stDateInput"] button { filter: hue-rotate(20deg) saturate(1.2); }
+
+/* Slider */
+[data-testid="stSidebar"] [data-testid="stSlider"] > div { padding-top: .2rem; }
+[data-testid="stSidebar"] [role="slider"] {
+    background: #3b82f6 !important;
+    box-shadow: 0 0 0 3px rgba(59,130,246,.25);
+}
+[data-testid="stSidebar"] .stSlider > div > div { background: rgba(59,130,246,.35) !important; }
+
+/* Checkbox / Radio */
+[data-testid="stSidebar"] [data-testid="stCheckbox"] input:checked ~ div {
+    border-color: #3b82f6 !important;
+    background: rgba(59,130,246,.35) !important;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] label:hover { background: rgba(59,130,246,.12); border-radius: 8px; }
+
+/* File Uploader */
+[data-testid="stSidebar"] [data-testid="stFileUploader"] section {
+    background: rgba(30,41,59,.55) !important;
+    border: 1px dashed rgba(59,130,246,.35) !important;
+    border-radius: 12px !important;
+}
 </style>
 """
 

@@ -198,7 +198,7 @@ def show():
             
             notes = st.text_area("Notas/Observações", placeholder="Ex: Rebalanceamento mensal, aproveitamento de dip, etc.")
             
-            if st.button("💾 Registar Transação", type="primary", use_container_width=True):
+            if st.button("Registar Transação", type="primary", use_container_width=True):
                 if quantity <= 0:
                     st.error("❌ A quantidade deve ser maior que zero!")
                 elif price_eur <= 0:

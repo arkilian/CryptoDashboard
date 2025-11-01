@@ -5,6 +5,7 @@ Módulo CSS para estilos customizados do CryptoDashboard
 from .sidebar import get_sidebar_style
 from .tables import get_tables_style
 from .base import get_app_base_style
+from .forms import get_forms_style
 from .charts import (
     apply_theme, 
     create_line_chart, 
@@ -20,6 +21,7 @@ __all__ = [
     'get_sidebar_style', 
     'get_tables_style',
     'get_app_base_style',
+    'get_forms_style',
     'apply_theme',
     'create_line_chart',
     'create_area_chart',

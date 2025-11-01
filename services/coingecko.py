@@ -43,11 +43,11 @@ _symbol_to_id_cache: Dict[str, str] = {k.upper(): v for k, v in COMMON_SYMBOL_MA
 
 # Cache de preços com TTL mais longo para evitar rate limits
 _price_cache: Dict[str, tuple] = {}  # {cache_key: (timestamp, prices_dict)}
-_price_cache_ttl = 180  # 3 minutos - balance entre atualização e rate limits
+_price_cache_ttl = 300  # 5 minutos - aumentado para reduzir chamadas API
 
-# Rate limiter global - garantir mínimo de 2 segundos entre QUALQUER chamada API
+# Rate limiter global - garantir mínimo de 4 segundos entre QUALQUER chamada API
 _last_api_call_time = 0
-_min_delay_between_calls = 2.0  # segundos
+_min_delay_between_calls = 4.0  # segundos - aumentado para evitar 429 errors
 
 
 def _get_coin_list() -> List[Dict]:
@@ -64,7 +64,7 @@ def _get_coin_list() -> List[Dict]:
     url = f"{BASE_URL}/coins/list"
     # Retry on transient errors (including 429) with short backoff
     retries = 3
-    backoff = 1.0
+    backoff = 3.0  # Aumentado para 3s para evitar rate limits
     for attempt in range(retries):
         try:
             resp = requests.get(url, timeout=10)

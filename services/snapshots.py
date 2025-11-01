@@ -100,8 +100,8 @@ def get_historical_price(asset_id: int, target_date: date) -> Optional[float]:
         import time
         
         # DELAY: Adicionar pausa para respeitar rate limit do CoinGecko (10-30 req/min na API gratuita)
-        # Reduced from 2s to 0.5s - still respectful but 4x faster (allows ~30 req/min)
-        time.sleep(0.5)
+        # Usando 3s entre chamadas para evitar 429 (Too Many Requests)
+        time.sleep(3.0)
         
         days_ago = (date.today() - target_date).days
         

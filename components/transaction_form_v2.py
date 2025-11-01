@@ -136,12 +136,53 @@ def render_transaction_form(engine):
     st.markdown("---")
     if st.button("✅ Registar Transação", type="primary", use_container_width=True, key="btn_submit_tx"):
         try:
+            # Validação de saldo para compras
+            if selected_type == 'buy':
+                qty = form_data.get('quantity', 0)
+                price = form_data.get('price_eur', 0)
+                fee = form_data.get('fee_eur', 0)
+                total_needed = (qty * price) + fee
+                
+                # Recalcular saldo disponível
+                df_cap = pd.read_sql(
+                    """
+                    SELECT 
+                        COALESCE(SUM(COALESCE(tucm.credit,0)),0) AS total_credit,
+                        COALESCE(SUM(COALESCE(tucm.debit,0)),0)  AS total_debit
+                    FROM t_user_capital_movements tucm
+                    JOIN t_users tu ON tucm.user_id = tu.user_id
+                    WHERE tu.is_admin = FALSE
+                    """,
+                    engine,
+                )
+                df_tx = pd.read_sql(
+                    """
+                    SELECT 
+                        COALESCE(SUM(CASE WHEN transaction_type = 'buy'  THEN total_eur + fee_eur ELSE 0 END),0) AS spent,
+                        COALESCE(SUM(CASE WHEN transaction_type = 'sell' THEN total_eur - fee_eur ELSE 0 END),0) AS received
+                    FROM t_transactions
+                    """,
+                    engine,
+                )
+                total_credit = float(df_cap.iloc[0]["total_credit"]) if not df_cap.empty else 0.0
+                total_debit = float(df_cap.iloc[0]["total_debit"]) if not df_cap.empty else 0.0
+                spent = float(df_tx.iloc[0]["spent"]) if not df_tx.empty else 0.0
+                received = float(df_tx.iloc[0]["received"]) if not df_tx.empty else 0.0
+                available_cash = total_credit - total_debit - spent + received
+                
+                if total_needed > available_cash + 1e-9:  # Tolerância para arredondamento
+                    st.error(f"❌ Saldo insuficiente. Disponível: €{available_cash:,.2f} | Necessário: €{total_needed:,.2f}")
+                    return
+            
             params = build_transaction_params(selected_type, form_data)
             _save_transaction(engine, params)
             st.success(f"✅ Transação registada com sucesso!")
             st.balloons()
             # Reset
             st.session_state.pop('tx_selected_type', None)
+            st.session_state.pop('tx_v2_price_value', None)
+            st.session_state.pop('tx_v2_market_price', None)
+            st.session_state.pop('tx_v2_market_price_date', None)
             st.rerun()
         except Exception as e:
             st.error(f"❌ Erro ao registar: {e}")
@@ -191,18 +232,94 @@ def _render_buy_sell_fields(tx_type, form_data, asset_options, account_options, 
     """Renderiza campos para buy/sell."""
     st.markdown(f"#### {'🟢 Compra' if tx_type == 'buy' else '🔴 Venda'}")
     
+    # Calcular saldo disponível EUR
+    df_cap = pd.read_sql(
+        """
+        SELECT 
+            COALESCE(SUM(COALESCE(tucm.credit,0)),0) AS total_credit,
+            COALESCE(SUM(COALESCE(tucm.debit,0)),0)  AS total_debit
+        FROM t_user_capital_movements tucm
+        JOIN t_users tu ON tucm.user_id = tu.user_id
+        WHERE tu.is_admin = FALSE
+        """,
+        engine,
+    )
+    df_tx = pd.read_sql(
+        """
+        SELECT 
+            COALESCE(SUM(CASE WHEN transaction_type = 'buy'  THEN total_eur + fee_eur ELSE 0 END),0) AS spent,
+            COALESCE(SUM(CASE WHEN transaction_type = 'sell' THEN total_eur - fee_eur ELSE 0 END),0) AS received
+        FROM t_transactions
+        """,
+        engine,
+    )
+    total_credit = float(df_cap.iloc[0]["total_credit"]) if not df_cap.empty else 0.0
+    total_debit = float(df_cap.iloc[0]["total_debit"]) if not df_cap.empty else 0.0
+    spent = float(df_tx.iloc[0]["spent"]) if not df_tx.empty else 0.0
+    received = float(df_tx.iloc[0]["received"]) if not df_tx.empty else 0.0
+    available_cash = total_credit - total_debit - spent + received
+    
+    st.metric("💶 Saldo disponível (EUR)", f"€{available_cash:,.2f}")
+    
     col1, col2 = st.columns(2)
     
     with col1:
         asset = st.selectbox("Ativo", list(asset_options.keys()), key="tx_v2_asset")
         form_data['asset_id'] = asset_options[asset]
         
+        # Guardar símbolo selecionado para usar no botão de preço
+        selected_symbol = asset.split(' - ')[0]
+        
         quantity = st.number_input("Quantidade", min_value=0.0, step=0.00000001, format="%.8f", key="tx_v2_qty")
         form_data['quantity'] = quantity
     
     with col2:
-        price_eur = st.number_input("Preço Unitário (EUR)", min_value=0.0, step=0.000001, format="%.6f", key="tx_v2_price")
+        # Campo de preço com valor do session_state (para manter após usar preço de mercado)
+        price_eur = st.number_input(
+            "Preço Unitário (EUR)", 
+            min_value=0.0, 
+            step=0.000001, 
+            format="%.6f", 
+            value=float(st.session_state.get("tx_v2_price_value", 0.0)),
+            key="tx_v2_price"
+        )
+        st.session_state["tx_v2_price_value"] = price_eur
         form_data['price_eur'] = price_eur
+        
+        # Botão e último preço lado a lado
+        col_btn, col_info = st.columns([1, 1])
+        
+        with col_btn:
+            if st.button("🔄 Usar preço de mercado", use_container_width=True, key="btn_market_price_v2"):
+                # Buscar preço histórico para a data selecionada
+                target_date = form_data.get('transaction_date', datetime.now()).date()
+                
+                try:
+                    from services.snapshots import get_historical_price
+                    
+                    # Buscar preço histórico da data selecionada
+                    price = get_historical_price(int(form_data['asset_id']), target_date)
+                    
+                    if price and price > 0:
+                        st.session_state["tx_v2_price_value"] = round(price, 6)
+                        st.session_state["tx_v2_market_price"] = price
+                        st.session_state["tx_v2_market_price_date"] = target_date
+                        st.success(f"✅ Preço aplicado: €{price:,.6f} ({target_date})")
+                        st.rerun()
+                    else:
+                        st.warning(f"Preço de mercado não disponível para {target_date}.")
+                except Exception as e:
+                    st.error(f"❌ Erro ao obter preço: {e}")
+        
+        with col_info:
+            # Mostrar último preço de mercado (se disponível)
+            market_price = st.session_state.get("tx_v2_market_price")
+            market_date = st.session_state.get("tx_v2_market_price_date")
+            if market_price:
+                date_str = f" ({market_date})" if market_date else ""
+                st.markdown(f"**💡 Último:**  \n€{market_price:,.6f}{date_str}")
+            else:
+                st.markdown("**💡 Último:**  \n—")
         
         fee_eur = st.number_input("Taxa (EUR)", min_value=0.0, step=0.01, format="%.2f", key="tx_v2_fee")
         form_data['fee_eur'] = fee_eur

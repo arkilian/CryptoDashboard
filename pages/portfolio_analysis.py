@@ -592,9 +592,23 @@ def show():
                         with col2:
                             st.metric("🪙 Valor em Cripto", f"€{crypto_value_today:,.2f}")
                         
-                        # Tabela de holdings cripto
-                        if crypto_holdings:
-                            df_holdings = pd.DataFrame(crypto_holdings)
+                        # Tabela de holdings (incluir EUR se houver saldo)
+                        all_holdings = []
+                        
+                        # Adicionar EUR se houver saldo em caixa
+                        if cash_balance > 0.01:
+                            all_holdings.append({
+                                "Ativo": "EUR",
+                                "Quantidade": cash_balance,
+                                "Preço Atual (€)": 1.0,
+                                "Valor Total (€)": cash_balance
+                            })
+                        
+                        # Adicionar crypto holdings
+                        all_holdings.extend(crypto_holdings)
+                        
+                        if all_holdings:
+                            df_holdings = pd.DataFrame(all_holdings)
                             df_holdings["% do Portfólio"] = (df_holdings["Valor Total (€)"] / saldo_atual_real * 100).round(2)
                             
                             st.dataframe(
@@ -675,6 +689,27 @@ def show():
                         WHERE qty > 0.00000001
                         ORDER BY ass.symbol, "Exchange", "Conta"
                     """, engine)
+                    
+                    # Adicionar/ajustar EUR do Banco para refletir o mesmo valor da "Caixa (EUR)"
+                    # Isto garante consistência entre as métricas e a tabela de holdings
+                    if 'cash_balance' in locals():
+                        total_eur_banco = float(cash_balance)
+                        # Remover linhas EUR do Banco existentes (se houver)
+                        if not df_holdings_acc.empty:
+                            df_holdings_acc = df_holdings_acc[~((df_holdings_acc['Ativo'] == 'EUR') & (df_holdings_acc['Exchange'] == 'Banco'))]
+                        # Adicionar linha consolidada se houver saldo
+                        if total_eur_banco > 0.01:
+                            new_row = pd.DataFrame([{
+                                'Ativo': 'EUR',
+                                'Exchange': 'Banco',
+                                'Conta': 'Tesouraria',
+                                'Categoria Conta': 'FIAT',
+                                'Quantidade': total_eur_banco
+                            }])
+                            if df_holdings_acc.empty:
+                                df_holdings_acc = new_row
+                            else:
+                                df_holdings_acc = pd.concat([new_row, df_holdings_acc], ignore_index=True)
 
                     if df_holdings_acc.empty:
                         st.info("📭 Nenhum holding atual.")

@@ -110,10 +110,10 @@ def render_transaction_form(engine):
         _render_buy_sell_fields(selected_type, form_data, asset_options, account_options, df_exchanges, engine)
         
     elif selected_type == 'swap':
-        _render_swap_fields(form_data, asset_options, account_options, df_exchanges)
+        _render_swap_fields(form_data, asset_options, account_options, df_exchanges, engine)
         
     elif selected_type == 'transfer':
-        _render_transfer_fields(form_data, asset_options, account_options)
+        _render_transfer_fields(form_data, asset_options, account_options, engine)
         
     elif selected_type in ['stake', 'unstake']:
         _render_stake_fields(selected_type, form_data, asset_options, account_options)
@@ -136,43 +136,59 @@ def render_transaction_form(engine):
     st.markdown("---")
     if st.button("✅ Registar Transação", type="primary", use_container_width=True, key="btn_submit_tx"):
         try:
-            # Validação de saldo para compras
+            # Validações por conta (per-account)
             if selected_type == 'buy':
                 qty = form_data.get('quantity', 0)
                 price = form_data.get('price_eur', 0)
                 fee = form_data.get('fee_eur', 0)
                 total_needed = (qty * price) + fee
-                
-                # Recalcular saldo disponível
-                df_cap = pd.read_sql(
-                    """
-                    SELECT 
-                        COALESCE(SUM(COALESCE(tucm.credit,0)),0) AS total_credit,
-                        COALESCE(SUM(COALESCE(tucm.debit,0)),0)  AS total_debit
-                    FROM t_user_capital_movements tucm
-                    JOIN t_users tu ON tucm.user_id = tu.user_id
-                    WHERE tu.is_admin = FALSE
-                    """,
-                    engine,
-                )
-                df_tx = pd.read_sql(
-                    """
-                    SELECT 
-                        COALESCE(SUM(CASE WHEN transaction_type = 'buy'  THEN total_eur + fee_eur ELSE 0 END),0) AS spent,
-                        COALESCE(SUM(CASE WHEN transaction_type = 'sell' THEN total_eur - fee_eur ELSE 0 END),0) AS received
-                    FROM t_transactions
-                    """,
-                    engine,
-                )
-                total_credit = float(df_cap.iloc[0]["total_credit"]) if not df_cap.empty else 0.0
-                total_debit = float(df_cap.iloc[0]["total_debit"]) if not df_cap.empty else 0.0
-                spent = float(df_tx.iloc[0]["spent"]) if not df_tx.empty else 0.0
-                received = float(df_tx.iloc[0]["received"]) if not df_tx.empty else 0.0
-                available_cash = total_credit - total_debit - spent + received
-                
-                if total_needed > available_cash + 1e-9:  # Tolerância para arredondamento
-                    st.error(f"❌ Saldo insuficiente. Disponível: €{available_cash:,.2f} | Necessário: €{total_needed:,.2f}")
-                    return
+                account_id = form_data.get('account_id')
+                eur_id = form_data.get('eur_asset_id')
+                if account_id:
+                    available_eur_acc = _get_account_asset_balance(engine, account_id, eur_id)
+                    if total_needed > available_eur_acc + 1e-9:
+                        st.error(f"❌ Saldo insuficiente nesta conta. Disponível: €{available_eur_acc:,.2f} | Necessário: €{total_needed:,.2f}")
+                        return
+                # Se não houver conta selecionada, não aplicamos validação por conta
+
+            elif selected_type == 'swap':
+                from_asset_id = form_data.get('from_asset_id')
+                to_asset_id = form_data.get('to_asset_id')
+                from_qty = float(form_data.get('from_quantity') or 0)
+                fee_asset_id = form_data.get('fee_asset_id')
+                fee_qty = float(form_data.get('fee_quantity') or 0)
+                account_id = form_data.get('account_id')
+                if account_id and from_asset_id:
+                    available_from = _get_account_asset_balance(engine, account_id, int(from_asset_id))
+                    # Se a taxa é no mesmo asset, somar ao débito total
+                    total_debit_from = from_qty + (fee_qty if fee_asset_id == from_asset_id else 0.0)
+                    if total_debit_from > available_from + 1e-9:
+                        st.error(
+                            f"❌ Saldo insuficiente do ativo de origem nesta conta. Disponível: {available_from:.8f} | Necessário: {total_debit_from:.8f}"
+                        )
+                        return
+                    # Se a taxa for noutro asset, validar também
+                    if fee_asset_id and fee_asset_id != from_asset_id:
+                        available_fee = _get_account_asset_balance(engine, account_id, int(fee_asset_id))
+                        if fee_qty > available_fee + 1e-9:
+                            st.error(
+                                f"❌ Saldo insuficiente para a taxa ({fee_qty:.8f} requeridos, {available_fee:.8f} disponíveis)."
+                            )
+                            return
+
+            elif selected_type == 'transfer':
+                asset_id = form_data.get('asset_id')
+                qty = float(form_data.get('quantity') or 0)
+                fee_qty = float(form_data.get('fee_quantity') or 0)
+                from_account_id = form_data.get('from_account_id')
+                if from_account_id and asset_id:
+                    available_from = _get_account_asset_balance(engine, int(from_account_id), int(asset_id))
+                    total_debit = qty + fee_qty
+                    if total_debit > available_from + 1e-9:
+                        st.error(
+                            f"❌ Saldo insuficiente na conta de origem. Disponível: {available_from:.8f} | Necessário: {total_debit:.8f}"
+                        )
+                        return
             
             params = build_transaction_params(selected_type, form_data)
             _save_transaction(engine, params)
@@ -348,8 +364,14 @@ def _render_buy_sell_fields(tx_type, form_data, asset_options, account_options, 
         else:
             form_data['account_id'] = None
 
+    # Saldo por conta (EUR)
+    if form_data.get('account_id'):
+        eur_id = form_data.get('eur_asset_id')
+        acc_eur_available = _get_account_asset_balance(engine, int(form_data['account_id']), int(eur_id))
+        st.caption(f"🧾 Disponível nesta conta (EUR): **€{acc_eur_available:,.2f}**")
 
-def _render_swap_fields(form_data, asset_options, account_options, df_exchanges):
+
+def _render_swap_fields(form_data, asset_options, account_options, df_exchanges, engine):
     """Renderiza campos para swap."""
     st.markdown("#### 🔄 Swap (Cripto ↔ Cripto)")
     
@@ -386,8 +408,22 @@ def _render_swap_fields(form_data, asset_options, account_options, df_exchanges)
     acc = st.selectbox("Conta/DEX", list(account_options.keys()), key="tx_v2_swap_acc")
     form_data['account_id'] = account_options[acc]
 
+    # Mostrar saldo disponível do ativo de origem (e eventualmente do asset da taxa se diferente)
+    try:
+        from_asset_id = form_data.get('from_asset_id')
+        if from_asset_id and form_data.get('account_id'):
+            available_from = _get_account_asset_balance(engine, int(form_data['account_id']), int(from_asset_id))
+            # Mostrar
+            st.caption(f"🧾 Disponível nesta conta ({list(asset_options.keys())[list(asset_options.values()).index(from_asset_id)]}): **{available_from:.8f}**")
+        fee_asset_id = form_data.get('fee_asset_id')
+        if fee_asset_id and fee_asset_id != from_asset_id and form_data.get('account_id'):
+            available_fee = _get_account_asset_balance(engine, int(form_data['account_id']), int(fee_asset_id))
+            st.caption(f"🧾 Disponível para taxa ({list(asset_options.keys())[list(asset_options.values()).index(fee_asset_id)]}): **{available_fee:.8f}**")
+    except Exception:
+        pass
 
-def _render_transfer_fields(form_data, asset_options, account_options):
+
+def _render_transfer_fields(form_data, asset_options, account_options, engine):
     """Renderiza campos para transfer."""
     st.markdown("#### ➡️ Transferência entre Contas")
     
@@ -416,6 +452,14 @@ def _render_transfer_fields(form_data, asset_options, account_options):
         to_acc = st.selectbox("Para (Destino)", list(account_options.keys()), key="tx_v2_transfer_to")
         form_data['to_account_id'] = account_options[to_acc]
     
+    # Mostrar saldo disponível do ativo na conta de origem
+    try:
+        if form_data.get('from_account_id') and form_data.get('asset_id'):
+            available_from = _get_account_asset_balance(engine, int(form_data['from_account_id']), int(form_data['asset_id']))
+            st.caption(f"🧾 Disponível na conta de origem ({asset.split(' - ')[0]}): **{available_from:.8f}**")
+    except Exception:
+        pass
+
     st.metric("📦 Quantidade recebida", f"{quantity - fee_qty:.8f}")
 
 
@@ -545,3 +589,38 @@ def _save_transaction(engine, params):
         result = conn.execute(text(sql_insert), params)
         tx_id = result.scalar_one()
         return tx_id
+
+
+def _get_account_asset_balance(engine, account_id: int, asset_id: int) -> float:
+    """Calcula o saldo atual de um asset numa conta específica (per-account).
+    Baseado nos deltas do modelo V2: inflows - outflows - fees.
+    """
+    if not account_id or not asset_id:
+        return 0.0
+    sql = text(
+        """
+        WITH inflows AS (
+            SELECT COALESCE(t.to_account_id, t.account_id, -1) AS account_id, t.to_asset_id AS asset_id, SUM(t.to_quantity) AS qty
+            FROM t_transactions t
+            WHERE t.to_asset_id = :asset_id AND COALESCE(t.to_account_id, t.account_id, -1) = :account_id
+            GROUP BY 1,2
+        ), outflows AS (
+            SELECT COALESCE(t.from_account_id, t.account_id, -1) AS account_id, t.from_asset_id AS asset_id, SUM(t.from_quantity) AS qty
+            FROM t_transactions t
+            WHERE t.from_asset_id = :asset_id AND COALESCE(t.from_account_id, t.account_id, -1) = :account_id
+            GROUP BY 1,2
+        ), fees AS (
+            SELECT COALESCE(t.from_account_id, t.account_id, -1) AS account_id, t.fee_asset_id AS asset_id, SUM(t.fee_quantity) AS qty
+            FROM t_transactions t
+            WHERE t.fee_asset_id = :asset_id AND t.fee_quantity > 0 AND COALESCE(t.from_account_id, t.account_id, -1) = :account_id
+            GROUP BY 1,2
+        )
+        SELECT 
+            COALESCE((SELECT SUM(qty) FROM inflows),0) 
+          - COALESCE((SELECT SUM(qty) FROM outflows),0)
+          - COALESCE((SELECT SUM(qty) FROM fees),0) AS balance
+        """
+    )
+    with engine.begin() as conn:
+        row = conn.execute(sql, {"account_id": int(account_id), "asset_id": int(asset_id)}).first()
+        return float(row[0]) if row and row[0] is not None else 0.0

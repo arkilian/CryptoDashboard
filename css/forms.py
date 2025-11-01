@@ -49,10 +49,49 @@ button[kind="secondary"] { border-color: #60a5fa !important; }
   border-radius: 10px !important;
   box-shadow: inset 0 1px 2px rgba(0,0,0,.25) !important;
 }
+/* NumberInput e DateInput: aplicamos ao wrapper também */
+[data-testid="stNumberInput"] div[data-baseweb="input"],
+[data-testid="stNumberInput"] div[data-baseweb="base-input"],
+[data-testid="stDateInput"] div[data-baseweb="input"],
+[data-testid="stDateInput"] div[data-baseweb="base-input"] {
+  background: rgba(30,41,59,.75) !important;
+  border: 1px solid rgba(59,130,246,.35) !important;
+  border-radius: 10px !important;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,.25) !important;
+}
+/* Container de Number/Date: remove qualquer borda/outline vermelho herdado */
+[data-testid="stNumberInput"],
+[data-testid="stDateInput"] {
+  outline: none !important;
+}
+[data-testid="stNumberInput"] > div,
+[data-testid="stDateInput"] > div {
+  outline: none !important;
+  /* evita borda vermelha de wrappers externos */
+  border-color: transparent;
+}
 
 /* Focus consistente (também quando o foco está dentro do wrapper) */
 [data-testid="stTextInput"] div[data-baseweb="input"]:focus-within,
 [data-testid="stTextInput"] div[data-baseweb="base-input"]:focus-within {
+  outline: none !important;
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 3px rgba(59,130,246,.25) !important;
+}
+/* Focus consistente para Number/Date */
+[data-testid="stNumberInput"] div[data-baseweb="input"]:focus-within,
+[data-testid="stNumberInput"] div[data-baseweb="base-input"]:focus-within,
+[data-testid="stDateInput"] div[data-baseweb="input"]:focus-within,
+[data-testid="stDateInput"] div[data-baseweb="base-input"]:focus-within {
+  outline: none !important;
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 3px rgba(59,130,246,.25) !important;
+}
+/* Também aplica ao container quando qualquer filho tem focus */
+[data-testid="stNumberInput"]:focus-within,
+[data-testid="stNumberInput"] > div:focus-within,
+[data-testid="stDateInput"]:focus-within,
+[data-testid="stDateInput"] > div:focus-within {
   outline: none !important;
   border-color: #3b82f6 !important;
   box-shadow: 0 0 0 3px rgba(59,130,246,.25) !important;
@@ -65,6 +104,27 @@ button[kind="secondary"] { border-color: #60a5fa !important; }
   border-color: rgba(59,130,246,.55) !important;
   box-shadow: 0 0 0 3px rgba(59,130,246,.25) !important;
   outline: none !important;
+}
+/* Estados inválidos coerentes para Number/Date/Select */
+[data-testid="stNumberInput"] div[aria-invalid="true"],
+[data-testid="stNumberInput"] div[data-invalid="true"],
+[data-testid="stNumberInput"] input:invalid,
+[data-testid="stDateInput"] div[aria-invalid="true"],
+[data-testid="stDateInput"] div[data-invalid="true"],
+[data-testid="stDateInput"] input:invalid,
+[data-testid="stSelectbox"] div[aria-invalid="true"],
+[data-testid="stSelectbox"] div[data-invalid="true"] {
+  border-color: rgba(59,130,246,.55) !important;
+  box-shadow: 0 0 0 3px rgba(59,130,246,.25) !important;
+}
+/* Invalid no container externo (impede vermelho) */
+[data-testid="stNumberInput"][aria-invalid="true"],
+[data-testid="stNumberInput"] > div[aria-invalid="true"],
+[data-testid="stDateInput"][aria-invalid="true"],
+[data-testid="stDateInput"] > div[aria-invalid="true"] {
+  outline: none !important;
+  border-color: rgba(59,130,246,.55) !important;
+  box-shadow: 0 0 0 3px rgba(59,130,246,.25) !important;
 }
 
 /* Autofill do navegador (evita amarelo e contorno estranho) */
@@ -91,6 +151,16 @@ input:-webkit-autofill:focus {
   color: #e2e8f0 !important;
   border: 1px solid rgba(59,130,246,.35) !important;
   border-radius: 10px !important;
+}
+/* Focus/erro coerente para select wrapper */
+[data-testid="stSelectbox"] div[data-baseweb="select"]:focus-within {
+  outline: none !important;
+  border: 1px solid #3b82f6 !important;
+  box-shadow: 0 0 0 3px rgba(59,130,246,.25) !important;
+}
+[data-testid="stSelectbox"] div[data-baseweb="select"][aria-invalid="true"] > div {
+  border-color: rgba(59,130,246,.55) !important;
+  box-shadow: 0 0 0 3px rgba(59,130,246,.25) !important;
 }
 /* Popovers e Menus (dropdowns e overlays) */
 [data-baseweb="popover"] {

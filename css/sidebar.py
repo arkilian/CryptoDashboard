@@ -146,8 +146,42 @@ SIDEBAR_STYLE = """
     border-radius: 10px !important;
     box-shadow: inset 0 1px 2px rgba(0,0,0,.25) !important;
 }
+[data-testid="stSidebar"] [data-testid="stNumberInput"],
+[data-testid="stSidebar"] [data-testid="stDateInput"] {
+    outline: none !important;
+}
+[data-testid="stSidebar"] [data-testid="stNumberInput"] > div,
+[data-testid="stSidebar"] [data-testid="stDateInput"] > div {
+    outline: none !important;
+    border-color: transparent;
+}
+[data-testid="stSidebar"] [data-testid="stNumberInput"] div[data-baseweb="input"],
+[data-testid="stSidebar"] [data-testid="stNumberInput"] div[data-baseweb="base-input"],
+[data-testid="stSidebar"] [data-testid="stDateInput"] div[data-baseweb="input"],
+[data-testid="stSidebar"] [data-testid="stDateInput"] div[data-baseweb="base-input"] {
+    background: rgba(30,41,59,.75) !important;
+    border: 1px solid rgba(59,130,246,.35) !important;
+    border-radius: 10px !important;
+    box-shadow: inset 0 1px 2px rgba(0,0,0,.25) !important;
+}
 [data-testid="stSidebar"] [data-testid="stTextInput"] div[data-baseweb="input"]:focus-within,
 [data-testid="stSidebar"] [data-testid="stTextInput"] div[data-baseweb="base-input"]:focus-within {
+    outline: none !important;
+    border-color: #3b82f6 !important;
+    box-shadow: 0 0 0 3px rgba(59,130,246,.25) !important;
+}
+[data-testid="stSidebar"] [data-testid="stNumberInput"]:focus-within,
+[data-testid="stSidebar"] [data-testid="stNumberInput"] > div:focus-within,
+[data-testid="stSidebar"] [data-testid="stDateInput"]:focus-within,
+[data-testid="stSidebar"] [data-testid="stDateInput"] > div:focus-within {
+    outline: none !important;
+    border-color: #3b82f6 !important;
+    box-shadow: 0 0 0 3px rgba(59,130,246,.25) !important;
+}
+[data-testid="stSidebar"] [data-testid="stNumberInput"] div[data-baseweb="input"]:focus-within,
+[data-testid="stSidebar"] [data-testid="stNumberInput"] div[data-baseweb="base-input"]:focus-within,
+[data-testid="stSidebar"] [data-testid="stDateInput"] div[data-baseweb="input"]:focus-within,
+[data-testid="stSidebar"] [data-testid="stDateInput"] div[data-baseweb="base-input"]:focus-within {
     outline: none !important;
     border-color: #3b82f6 !important;
     box-shadow: 0 0 0 3px rgba(59,130,246,.25) !important;
@@ -155,6 +189,25 @@ SIDEBAR_STYLE = """
 [data-testid="stSidebar"] [data-testid="stTextInput"] div[aria-invalid="true"],
 [data-testid="stSidebar"] [data-testid="stTextInput"] div[data-invalid="true"],
 [data-testid="stSidebar"] [data-testid="stTextInput"] input:invalid {
+    border-color: rgba(59,130,246,.55) !important;
+    box-shadow: 0 0 0 3px rgba(59,130,246,.25) !important;
+}
+[data-testid="stSidebar"] [data-testid="stNumberInput"][aria-invalid="true"],
+[data-testid="stSidebar"] [data-testid="stNumberInput"] > div[aria-invalid="true"],
+[data-testid="stSidebar"] [data-testid="stDateInput"][aria-invalid="true"],
+[data-testid="stSidebar"] [data-testid="stDateInput"] > div[aria-invalid="true"] {
+    outline: none !important;
+    border-color: rgba(59,130,246,.55) !important;
+    box-shadow: 0 0 0 3px rgba(59,130,246,.25) !important;
+}
+[data-testid="stSidebar"] [data-testid="stNumberInput"] div[aria-invalid="true"],
+[data-testid="stSidebar"] [data-testid="stNumberInput"] div[data-invalid="true"],
+[data-testid="stSidebar"] [data-testid="stNumberInput"] input:invalid,
+[data-testid="stSidebar"] [data-testid="stDateInput"] div[aria-invalid="true"],
+[data-testid="stSidebar"] [data-testid="stDateInput"] div[data-invalid="true"],
+[data-testid="stSidebar"] [data-testid="stDateInput"] input:invalid,
+[data-testid="stSidebar"] [data-testid="stSelectbox"] div[aria-invalid="true"],
+[data-testid="stSidebar"] [data-testid="stSelectbox"] div[data-invalid="true"] {
     border-color: rgba(59,130,246,.55) !important;
     box-shadow: 0 0 0 3px rgba(59,130,246,.25) !important;
 }
@@ -174,6 +227,15 @@ SIDEBAR_STYLE = """
     color: #e2e8f0 !important;
     border: 1px solid rgba(59,130,246,.35) !important;
     border-radius: 10px !important;
+}
+[data-testid="stSidebar"] [data-testid="stSelectbox"] div[data-baseweb="select"]:focus-within {
+    outline: none !important;
+    border: 1px solid #3b82f6 !important;
+    box-shadow: 0 0 0 3px rgba(59,130,246,.25) !important;
+}
+[data-testid="stSidebar"] [data-testid="stSelectbox"] div[data-baseweb="select"][aria-invalid="true"] > div {
+    border-color: rgba(59,130,246,.55) !important;
+    box-shadow: 0 0 0 3px rgba(59,130,246,.25) !important;
 }
 
 [data-testid="stSidebar"] [data-baseweb="menu"] {

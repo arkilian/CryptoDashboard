@@ -98,7 +98,8 @@ CREATE TABLE IF NOT EXISTS t_exchange_accounts (
     account_id SERIAL PRIMARY KEY,
     exchange_id INTEGER REFERENCES t_exchanges(exchange_id),
     user_id INTEGER REFERENCES t_users(user_id),
-    account_category TEXT
+    name TEXT,-- Ex: "Futuros", "Earn", "Bot 1"
+    account_category TEXT-- Ex: "Futuros", "Earn", "Bot 1"
 );
 
 -- ========================================

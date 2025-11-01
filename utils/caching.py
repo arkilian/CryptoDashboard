@@ -1,11 +1,12 @@
 """Caching utilities for performance optimization."""
 import functools
 import time
+import threading
 from typing import Callable, Any, Optional
 
 
 def ttl_cache(ttl_seconds: int = 60):
-    """Simple TTL cache decorator.
+    """Thread-safe TTL cache decorator.
     
     Args:
         ttl_seconds: Time-to-live in seconds
@@ -18,29 +19,42 @@ def ttl_cache(ttl_seconds: int = 60):
     def decorator(func: Callable) -> Callable:
         cache = {}
         cache_time = {}
+        cache_lock = threading.Lock()
         
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            # Create cache key from args and kwargs
-            key = (args, tuple(sorted(kwargs.items())))
+            # Create cache key - use repr for consistent hashing
+            # frozenset is more efficient for kwargs
+            if kwargs:
+                kwargs_key = frozenset(kwargs.items())
+            else:
+                kwargs_key = frozenset()
+            key = (args, kwargs_key)
+            
             current_time = time.time()
             
-            # Check if cached and not expired
-            if key in cache and key in cache_time:
-                if current_time - cache_time[key] < ttl_seconds:
-                    return cache[key]
+            # Thread-safe cache check
+            with cache_lock:
+                # Check if cached and not expired
+                if key in cache and key in cache_time:
+                    if current_time - cache_time[key] < ttl_seconds:
+                        return cache[key]
             
-            # Call function and cache result
+            # Call function (outside lock to avoid blocking)
             result = func(*args, **kwargs)
-            cache[key] = result
-            cache_time[key] = current_time
+            
+            # Thread-safe cache update
+            with cache_lock:
+                cache[key] = result
+                cache_time[key] = current_time
             
             return result
         
         # Add cache clearing function
         def clear_cache():
-            cache.clear()
-            cache_time.clear()
+            with cache_lock:
+                cache.clear()
+                cache_time.clear()
         
         wrapper.clear_cache = clear_cache
         return wrapper

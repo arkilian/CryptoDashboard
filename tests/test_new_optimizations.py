@@ -1,6 +1,7 @@
 """Tests for new performance optimizations."""
 import unittest
 import pandas as pd
+import numpy as np
 from unittest.mock import Mock, patch
 
 
@@ -71,6 +72,30 @@ class TestVectorizedHoldings(unittest.TestCase):
         # ETH should be in result
         self.assertIn('ETH', holdings)
         self.assertAlmostEqual(holdings['ETH'], 2.0, places=6)
+    
+    def test_calculate_holdings_uses_numpy_where(self):
+        """Test that the implementation uses numpy.where for performance."""
+        import sys
+        sys.modules['streamlit'] = Mock()
+        sys.modules['plotly'] = Mock()
+        sys.modules['plotly.express'] = Mock()
+        sys.modules['plotly.graph_objects'] = Mock()
+        
+        from pages.portfolio_analysis import _calculate_holdings_vectorized
+        
+        # Create test data
+        df_tx = pd.DataFrame({
+            'symbol': ['BTC', 'ETH'],
+            'quantity': [1.0, 2.0],
+            'transaction_type': ['buy', 'sell']
+        })
+        
+        holdings = _calculate_holdings_vectorized(df_tx)
+        
+        # Should correctly handle buy as positive and sell as negative
+        self.assertAlmostEqual(holdings['BTC'], 1.0, places=6)
+        # ETH sell should result in negative, which gets filtered out
+        self.assertNotIn('ETH', holdings)
 
 
 class TestCachingUtilities(unittest.TestCase):
@@ -146,6 +171,33 @@ class TestCachingUtilities(unittest.TestCase):
         # Should call function again
         expensive_func(5)
         self.assertEqual(call_count[0], 2)
+    
+    def test_ttl_cache_thread_safety(self):
+        """Test that cache is thread-safe."""
+        import threading
+        from utils.caching import ttl_cache
+        
+        call_count = [0]
+        lock = threading.Lock()
+        
+        @ttl_cache(ttl_seconds=60)
+        def expensive_func(x):
+            with lock:
+                call_count[0] += 1
+            return x * 2
+        
+        # Call from multiple threads
+        threads = []
+        for _ in range(10):
+            t = threading.Thread(target=lambda: expensive_func(5))
+            threads.append(t)
+            t.start()
+        
+        for t in threads:
+            t.join()
+        
+        # Should only call function once due to caching
+        self.assertEqual(call_count[0], 1)
 
 
 class TestSnapshotsOptimizations(unittest.TestCase):

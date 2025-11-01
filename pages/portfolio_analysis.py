@@ -22,10 +22,12 @@ def _calculate_holdings_vectorized(df_tx):
     # Create a copy to avoid modifying original
     df = df_tx.copy()
     
-    # Convert buys to positive and sells to negative quantities
-    df['signed_qty'] = df.apply(
-        lambda row: row['quantity'] if row['transaction_type'] == 'buy' else -row['quantity'],
-        axis=1
+    # Use numpy.where for fully vectorized operation (faster than apply)
+    import numpy as np
+    df['signed_qty'] = np.where(
+        df['transaction_type'] == 'buy',
+        df['quantity'],
+        -df['quantity']
     )
     
     # Group by symbol and sum quantities
@@ -312,7 +314,9 @@ def show():
                                 info_text = st.empty()
                                 
                                 # Batch process dates in groups to reduce UI updates
-                                batch_size = max(1, total_dates // 20)  # Update UI ~20 times max
+                                # Update UI ~20 times total for optimal responsiveness
+                                # (More frequent = slower, less frequent = feels unresponsive)
+                                batch_size = max(1, total_dates // 20)
                                 
                                 for idx, calc_date in enumerate(all_dates):
                                     # Only update UI every batch_size iterations

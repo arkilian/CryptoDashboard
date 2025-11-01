@@ -36,9 +36,18 @@ Documentação completa do sistema de gestão de fundos comunitários de criptom
    - Uso em páginas (prefetch pattern)
    - Performance e gestão de cache
 
+4. **[Modelo de Transações V2](07-transaction-model-v2.md)**
+   - Visão geral multi-asset/multi-conta
+   - 13 tipos de transação suportados (buy, sell, deposit, withdrawal, swap, transfer, stake, unstake, reward, lend, borrow, repay, liquidate)
+   - Estrutura e campos (from/to, fees em qualquer asset)
+   - Cálculo de holdings por conta
+   - Workflows típicos e cenários reais
+   - Migração automática e compatibilidade legado
+   - Boas práticas e notas importantes
+
 ### 💼 Negócio
 
-4. **[Modelo de Negócio](04-modelo-negocio.md)**
+5. **[Modelo de Negócio](04-modelo-negocio.md)**
    - Visão geral e proposta de valor
    - Estrutura do fundo (participantes, modelo de propriedade)
    - Casos de uso (família, clubes, gestão profissional, DAOs)
@@ -51,7 +60,7 @@ Documentação completa do sistema de gestão de fundos comunitários de criptom
 
 ### 👤 Utilizadores
 
-5. **[Guias de Utilizador](05-guias-utilizador.md)**
+6. **[Guias de Utilizador](05-guias-utilizador.md)**
    - Para todos: primeiro acesso, dashboard, ver portfólio
    - Para utilizadores: solicitar depósitos/levantamentos, interpretar shares
    - Para admins: gestão de utilizadores, processar movimentos, transações cripto
@@ -60,7 +69,7 @@ Documentação completa do sistema de gestão de fundos comunitários de criptom
 
 ### 🚀 Deployment
 
-6. **[Setup e Deployment](06-setup-deployment.md)**
+7. **[Setup e Deployment](06-setup-deployment.md)**
    - Requisitos do sistema
    - Instalação local (desenvolvimento)
    - Deployment em produção (Streamlit Cloud, Heroku, VPS)

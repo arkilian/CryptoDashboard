@@ -27,7 +27,7 @@ O Crypto Dashboard é uma solução profissional para gestão transparente de fu
   - Levantamentos: registam débito e **queimam shares proporcionalmente**
   - Histórico completo auditável com datas e valores
 
-### � Sistema de Shares & NAV (Ownership)
+### 💎 Sistema de Shares & NAV (Ownership)
 **O coração do sistema** - garante propriedade justa e proporcional:
 
 - **NAV (Net Asset Value)**: Valor total do fundo = Caixa + Holdings em Cripto a preços atuais
@@ -53,7 +53,16 @@ Agora: Total 1500 shares, A tem 33.3%, B tem 33.3%, resto do fundo 33.3%
   - Validação de saldo de caixa disponível antes de compras
   - Atualização automática de holdings do fundo
 
-### � Análise de Portfólio
+### 🧩 Modelo de Transações V2 (multi-asset/multi-conta)
+- Suporte a todos os tipos de operações: `buy`, `sell`, `deposit`, `withdrawal`, `swap`, `transfer`, `stake`, `unstake`, `reward`, `lend`, `borrow`, `repay`, `liquidate`.
+- Campos estruturados para origem/destino: `from_asset_id`, `to_asset_id`, `from_quantity`, `to_quantity`, `from_account_id`, `to_account_id`, `fee_asset_id`, `fee_quantity`.
+- Compatível com o legado: colunas antigas (`asset_id`, `quantity`, `price_eur`, `total_eur`, `fee_eur`) continuam válidas (tornadas NULLABLE), e são automaticamente mapeadas.
+- EUR é tratado como um asset na tabela `t_assets` e existe a exchange especial "Banco" para movimentos FIAT.
+- Migração automática e idempotente no arranque: a aplicação cria colunas/índices necessários, adiciona EUR, cria a exchange "Banco" e migra `buy/sell` antigas.
+
+Guia completo com exemplos e impactos de holdings: **[Modelo de Transações V2 →](wiki/07-transaction-model-v2.md)**
+
+### 📊 Análise de Portfólio
 Dashboard completo com três componentes principais:
 
 #### 1️⃣ **Métricas de Topo**
@@ -176,6 +185,7 @@ Para documentação técnica detalhada, arquitetura, guias de setup e modelo de 
 - [💼 Modelo de Negócio](wiki/04-modelo-negocio.md)
 - [👤 Guias de Utilizador](wiki/05-guias-utilizador.md)
 - [🚀 Setup e Deployment](wiki/06-setup-deployment.md)
+- [🧩 Modelo de Transações V2](wiki/07-transaction-model-v2.md)
 
 ## 🎯 Roadmap
 

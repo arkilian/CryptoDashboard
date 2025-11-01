@@ -159,24 +159,73 @@ t_user_shares
 -- Ativos disponíveis
 t_assets
 ├── asset_id (PK)
-├── symbol (e.g., 'BTC', 'ETH')
+├── symbol (e.g., 'BTC', 'ETH', 'EUR')
 ├── name
+├── chain
 ├── coingecko_id
-└── is_active
+└── is_stablecoin (BOOLEAN)
 
--- Transações de compra/venda
+-- Exchanges e Contas
+t_exchanges
+├── exchange_id (PK)
+├── name
+└── category
+
+t_exchange_accounts
+├── account_id (PK)
+├── exchange_id (FK → t_exchanges)
+├── user_id (FK → t_users)
+├── name (rótulo da conta)
+└── account_category (ex.: Spot, Earn, Wallet)
+
+-- Transações (Modelo V2)
 t_transactions
 ├── transaction_id (PK)
-├── user_id (FK → t_users)
+├── transaction_date (TIMESTAMPTZ)
+├── transaction_type CHECK (
+│   'buy','sell','deposit','withdrawal','swap','transfer',
+│   'stake','unstake','reward','lend','borrow','repay','liquidate'
+│)
+│
+├── -- Campos legacy (retrocompat; agora NULLABLE)
 ├── asset_id (FK → t_assets)
-├── transaction_date
-├── transaction_type ('buy' | 'sell')
 ├── quantity
-├── price_eur (preço unitário)
-├── total_eur (quantidade × preço)
-├── fee_eur
+├── price_eur
+├── total_eur
+├── fee_eur DEFAULT 0
+│
+├── -- Conta principal associada (quando aplicável)
+├── account_id (FK → t_exchange_accounts)
+│
+├── -- Campos V2 (multi-asset / multi-conta)
+├── from_asset_id (FK → t_assets)
+├── to_asset_id   (FK → t_assets)
+├── from_quantity
+├── to_quantity
+├── from_account_id (FK → t_exchange_accounts)
+├── to_account_id   (FK → t_exchange_accounts)
+├── fee_asset_id    (FK → t_assets)
+├── fee_quantity DEFAULT 0
+│
+├── executed_by (FK → t_users)
 └── notes
+
+-- Índices recomendados
+CREATE INDEX IF NOT EXISTS idx_transactions_date ON t_transactions(transaction_date DESC);
+CREATE INDEX IF NOT EXISTS idx_transactions_type ON t_transactions(transaction_type);
+CREATE INDEX IF NOT EXISTS idx_transactions_account ON t_transactions(account_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_from_asset ON t_transactions(from_asset_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_to_asset ON t_transactions(to_asset_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_from_account ON t_transactions(from_account_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_to_account ON t_transactions(to_account_id);
 ```
+
+Notas:
+- EUR é tratado como um asset em `t_assets` com `is_stablecoin=TRUE`.
+- Existe a exchange especial "Banco" (categoria FIAT) para movimentos em EUR fora das exchanges.
+- A coluna `name` foi adicionada a `t_exchange_accounts` para identificar cada conta (ex.: Spot, Earn, Wallet).
+- As colunas legacy foram tornadas NULLABLE e continuam suportadas para compatibilidade.
+- A migração automática é aplicada no arranque (ver `apply_transaction_model_v2()` e `app.py`).
 
 #### Cache de Preços ⭐
 ```sql

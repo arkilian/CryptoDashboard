@@ -58,13 +58,38 @@ def get_historical_price(asset_id: int, target_date: date) -> Optional[float]:
     
     # Buscar symbol e coingecko_id
     df_asset = pd.read_sql(
-        "SELECT symbol, coingecko_id FROM t_assets WHERE asset_id = %s",
+        "SELECT symbol, coingecko_id, is_stablecoin FROM t_assets WHERE asset_id = %s",
         engine,
         params=(asset_id,)
     )
     
-    if df_asset.empty or not df_asset.iloc[0]['coingecko_id']:
-        logger.warning(f"Asset {asset_id} não tem coingecko_id configurado")
+    if df_asset.empty:
+        logger.warning(f"Asset {asset_id} não encontrado")
+        return None
+    
+    # Se não tem coingecko_id, verificar se é EUR (moeda FIAT base)
+    if not df_asset.iloc[0]['coingecko_id']:
+        symbol = df_asset.iloc[0]['symbol']
+        
+        # Apenas EUR (moeda base) tem preço fixo de 1.0
+        if symbol == 'EUR':
+            # Guardar preço fixo de 1.0 para EUR
+            try:
+                with engine.begin() as conn:
+                    conn.execute(
+                        text("""
+                            INSERT INTO t_price_snapshots (asset_id, snapshot_date, price_eur, source)
+                            VALUES (:asset_id, :date, 1.0, 'fixed')
+                            ON CONFLICT (asset_id, snapshot_date) DO NOTHING
+                        """),
+                        {"asset_id": asset_id, "date": target_date}
+                    )
+            except Exception as e:
+                logger.warning(f"Erro ao guardar preço fixo: {e}")
+            return 1.0
+        
+        # Qualquer outro ativo sem coingecko_id (incluindo stablecoins) é erro de configuração
+        logger.warning(f"Asset {asset_id} ({symbol}) não tem coingecko_id configurado")
         return None
     
     coingecko_id = df_asset.iloc[0]['coingecko_id']

@@ -41,6 +41,14 @@ _coin_list_cache: Optional[tuple] = None  # (timestamp, data)
 _coin_list_cache_ttl = 3600  # 1 hour
 _symbol_to_id_cache: Dict[str, str] = {k.upper(): v for k, v in COMMON_SYMBOL_MAP.items()}
 
+# Cache de preços com TTL mais longo para evitar rate limits
+_price_cache: Dict[str, tuple] = {}  # {cache_key: (timestamp, prices_dict)}
+_price_cache_ttl = 180  # 3 minutos - balance entre atualização e rate limits
+
+# Rate limiter global - garantir mínimo de 2 segundos entre QUALQUER chamada API
+_last_api_call_time = 0
+_min_delay_between_calls = 2.0  # segundos
+
 
 def _get_coin_list() -> List[Dict]:
     """Retorna a lista de moedas do CoinGecko com cache de 1 hora."""
@@ -106,6 +114,27 @@ def get_price_by_symbol(symbols: List[str], vs_currency: str = "eur") -> Dict[st
     if not symbols:
         return {}
 
+    # Identificar caller para debugging
+    import traceback
+    try:
+        caller_info = traceback.extract_stack()[-2]
+        caller_location = f"{caller_info.filename.split('CryptoDashboard')[-1]}:{caller_info.lineno}"
+    except:
+        caller_location = "unknown"
+
+    # Criar cache key baseado nos símbolos e moeda
+    cache_key = f"{'-'.join(sorted(symbols))}_{vs_currency}"
+    now = time.time()
+    
+    # Verificar cache de preços
+    if cache_key in _price_cache:
+        cache_time, cached_prices = _price_cache[cache_key]
+        if now - cache_time < _price_cache_ttl:
+            logger.info(f"💾 Cache HIT para preços: {symbols[:3]}{'...' if len(symbols) > 3 else ''} [from {caller_location}]")
+            return cached_prices
+
+    logger.info(f"🔍 Cache MISS - chamando API para {symbols[:3]}{'...' if len(symbols) > 3 else ''} [from {caller_location}]")
+
     # Mapeia símbolos para ids
     symbol_id_map: Dict[str, str] = {}
     ids = []
@@ -128,12 +157,25 @@ def get_price_by_symbol(symbols: List[str], vs_currency: str = "eur") -> Dict[st
     }
     url = f"{BASE_URL}/simple/price"
 
-    # Retry on transient errors (e.g., 429) with exponential backoff
-    retries = 3
-    backoff = 1.0
+    # Retry on transient errors (e.g., 429) with exponential backoff MAIS LONGO
+    retries = 5  # Aumentar tentativas
+    backoff = 3.0  # Começar com 3 segundos
     for attempt in range(retries):
         try:
-            resp = requests.get(url, params=params, timeout=10)
+            # Rate limiter global - garantir delay mínimo entre chamadas
+            global _last_api_call_time
+            time_since_last_call = now - _last_api_call_time
+            if time_since_last_call < _min_delay_between_calls:
+                wait_time = _min_delay_between_calls - time_since_last_call
+                logger.info(f"⏱️ Rate limiter: aguardando {wait_time:.2f}s antes da chamada API")
+                time.sleep(wait_time)
+            
+            # Adicionar delay ANTES da chamada para evitar burst
+            if attempt > 0:
+                time.sleep(backoff)
+            
+            _last_api_call_time = time.time()  # Atualizar timestamp
+            resp = requests.get(url, params=params, timeout=15)
             resp.raise_for_status()
             data = resp.json()
 
@@ -144,15 +186,26 @@ def get_price_by_symbol(symbols: List[str], vs_currency: str = "eur") -> Dict[st
                 else:
                     prices[sym] = None
 
+            # Guardar no cache
+            _price_cache[cache_key] = (now, prices)
+            logger.info(f"✅ Preços obtidos da API: {symbols[:3]}{'...' if len(symbols) > 3 else ''}")
+            
             return prices
+            
         except requests.RequestException as e:
             # On 429 or similar, wait and retry a few times
-            logger.warning("Tentativa %d: Erro ao obter preços do CoinGecko: %s", attempt + 1, e)
+            logger.warning("Tentativa %d/%d: Erro ao obter preços do CoinGecko: %s", attempt + 1, retries, e)
             if attempt < retries - 1:
-                time.sleep(backoff)
-                backoff *= 2
+                backoff *= 2.5  # Exponencial mais agressivo
                 continue
-            logger.error("Erro ao obter preços do CoinGecko após %d tentativas: %s", retries, e)
+            
+            # Última tentativa falhou - retornar cache expirado se existir
+            logger.error("❌ Erro após %d tentativas: %s", retries, e)
+            if cache_key in _price_cache:
+                _, expired_prices = _price_cache[cache_key]
+                logger.warning("⚠️ Usando cache EXPIRADO para evitar falha total")
+                return expired_prices
+            
             return {s: None for s in symbols}
 
 
@@ -183,26 +236,19 @@ class CoinGeckoService:
 
         vs_currencies: list like ['eur','usd']
         Returns dict: {symbol: {vs: price, ...}, ...}
+        
+        NOTA: Usa cache global agora via get_price_by_symbol()
         """
         if not symbols:
             return {}
 
-        # Build cache key from symbols and vs_currencies
-        key = ("|".join(sorted([s.upper() for s in symbols])), "|".join(sorted([v.lower() for v in vs_currencies])))
-        now = time.time()
-        cached = self._price_cache.get(key)
-        if cached and now - cached[0] < self._price_cache_ttl:
-            return cached[1]
-
-        # reutiliza a função get_price_by_symbol para cada vs_currency
+        # Reutiliza a função get_price_by_symbol (que tem cache global)
         result = {s: {} for s in symbols}
         for vs in vs_currencies:
             prices = get_price_by_symbol(symbols, vs_currency=vs)
             for s, p in prices.items():
                 result[s][vs] = p
 
-        # store in cache
-        self._price_cache[key] = (now, result)
         return result
 
     def get_market_chart(self, symbol_or_id: str, period: str = "30d", vs_currency: str = "eur"):

@@ -90,7 +90,6 @@ def main():
         menu_options.insert(-1, "⚙️ Configurações")
     
     # Criar botões estilizados para cada opção
-    st.sidebar.markdown("### 📋 Menu")
     for option in menu_options:
         if st.sidebar.button(option, key=f"menu_{option}", use_container_width=True):
             st.session_state["menu_selection"] = option

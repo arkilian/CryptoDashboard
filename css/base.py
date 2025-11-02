@@ -123,11 +123,11 @@ section[data-testid="stToolbar"] {
 
 /* Painel de conteúdo do tab */
 [data-testid="stTabs"] [data-baseweb="tab-panel"] {
-    background: rgba(30, 41, 59, 0.2);
-    border-radius: 12px;
-    padding: 1.5rem;
-    margin-top: 1rem;
-    border: 1px solid rgba(59, 130, 246, 0.15);
+    background: rgba(30, 41, 59, 0.2) !important;
+    border-radius: 12px !important;
+    padding: 1.5rem !important;
+    margin-top: 1rem !important;
+    border: 1px solid rgba(59, 130, 246, 0.15) !important;
 }
 
 /* Indicador de tab ativa (linha embaixo) */

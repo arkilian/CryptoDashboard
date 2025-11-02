@@ -108,7 +108,7 @@ section[data-testid="stToolbar"] {
 [data-testid="stTabs"] [data-baseweb="tab"]:hover {
     background: rgba(59, 130, 246, 0.2) !important;
     color: #e2e8f0 !important;
-    transform: translateY(-2px);
+    transform: translateY(-2px) !important;
     box-shadow: 0 4px 8px rgba(59, 130, 246, 0.3) !important;
 }
 

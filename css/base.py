@@ -77,18 +77,18 @@ section[data-testid="stToolbar"] {
    ======================================== */
 /* Container dos tabs */
 [data-testid="stTabs"] {
-    background: transparent;
-    padding: 0;
-    margin: 1rem 0;
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 1rem 0 !important;
 }
 
 /* Lista de tabs (cabeçalhos) */
 [data-testid="stTabs"] [data-baseweb="tab-list"] {
-    gap: 0.5rem;
-    background: rgba(15, 23, 42, 0.4);
-    padding: 0.5rem;
-    border-radius: 12px;
-    border: 1px solid rgba(59, 130, 246, 0.2);
+    gap: 0.5rem !important;
+    background: rgba(15, 23, 42, 0.4) !important;
+    padding: 0.5rem !important;
+    border-radius: 12px !important;
+    border: 1px solid rgba(59, 130, 246, 0.2) !important;
 }
 
 /* Cada tab individual */

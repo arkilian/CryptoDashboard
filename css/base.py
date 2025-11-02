@@ -71,6 +71,70 @@ section[data-testid="stToolbar"] {
   min-height: 0 !important;
   visibility: hidden !important;
 }
+
+/* ========================================
+   TABS (Sub Menus) - st.tabs()
+   ======================================== */
+/* Container dos tabs */
+[data-testid="stTabs"] {
+    background: transparent;
+    padding: 0;
+    margin: 1rem 0;
+}
+
+/* Lista de tabs (cabeçalhos) */
+[data-testid="stTabs"] [data-baseweb="tab-list"] {
+    gap: 0.5rem;
+    background: rgba(15, 23, 42, 0.4);
+    padding: 0.5rem;
+    border-radius: 12px;
+    border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+/* Cada tab individual */
+[data-testid="stTabs"] [data-baseweb="tab"] {
+    background: rgba(30, 41, 59, 0.5) !important;
+    color: #94a3b8 !important;
+    border: none !important;
+    border-radius: 8px !important;
+    padding: 0.75rem 1.5rem !important;
+    font-weight: 500 !important;
+    font-size: 0.95rem !important;
+    transition: all 0.3s ease !important;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2) !important;
+}
+
+/* Tab hover */
+[data-testid="stTabs"] [data-baseweb="tab"]:hover {
+    background: rgba(59, 130, 246, 0.2) !important;
+    color: #e2e8f0 !important;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(59, 130, 246, 0.3) !important;
+}
+
+/* Tab ativa */
+[data-testid="stTabs"] [data-baseweb="tab"][aria-selected="true"] {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.4), rgba(147, 51, 234, 0.4)) !important;
+    color: #ffffff !important;
+    font-weight: 600 !important;
+    border-bottom: 3px solid #3b82f6 !important;
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.5) !important;
+}
+
+/* Painel de conteúdo do tab */
+[data-testid="stTabs"] [data-baseweb="tab-panel"] {
+    background: rgba(30, 41, 59, 0.2);
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin-top: 1rem;
+    border: 1px solid rgba(59, 130, 246, 0.15);
+}
+
+/* Indicador de tab ativa (linha embaixo) */
+[data-testid="stTabs"] [data-baseweb="tab-highlight"] {
+    background-color: #3b82f6 !important;
+    height: 3px !important;
+}
 </style>
 """
 

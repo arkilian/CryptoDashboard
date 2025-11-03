@@ -34,14 +34,7 @@ class CardanoScanAPI:
     # Mapa de casas decimais por policyId (pode usar prefixos para corresponder)
     TOKEN_DECIMALS_BY_POLICY = {
         # Exemplo: policyId (ou prefixo) -> decimais
-        # "<policyIdCompletoOuPrefixo>": 6,
-        "6df63e2fdde8": 6,  # Prefixo citado pelo utilizador
-        "6df63e2fdde8b2c3b3396265b0cc824aa4fb999396b1c154280f6b0c": 6,  # PolicyId completo
-    }
-    
-    # Mapa de nomes por policyId (para tokens sem assetName ou metadata incompleta)
-    TOKEN_NAMES_BY_POLICY = {
-        "6df63e2fdde8b2c3b3396265b0cc824aa4fb999396b1c154280f6b0c": "FREN",  # Nome conhecido
+        "6df63e2fdde8b2c3b3396265b0cc824aa4fb999396b1c154280f6b0c": 6,  # qDJED
     }
     
     def __init__(self, api_key: str):
@@ -149,13 +142,21 @@ class CardanoScanAPI:
     def get_asset_metadata(self, policy_id: Optional[str], asset_name_hex: Optional[str]) -> Optional[Dict]:
         """
         Consulta metadados do token no CardanoScan e memoriza o resultado.
+        OTIMIZAÇÃO: retorna imediatamente se já estiver em cache ou se não houver policyId.
         """
+        # Early return: sem policy, sem metadata
+        if not policy_id:
+            return None
+            
         cache_key = self._asset_cache_key(policy_id, asset_name_hex)
         if cache_key and cache_key in self._asset_meta_cache:
             return self._asset_meta_cache[cache_key]
 
-        if not policy_id:
+        # Cache miss negativo: se já tentámos e falhou, não tentar de novo
+        negative_key = f"_neg_{cache_key}"
+        if negative_key in self._asset_meta_cache:
             return None
+
         params = {"policyId": policy_id}
         if asset_name_hex is not None:
             params["assetName"] = asset_name_hex
@@ -163,6 +164,9 @@ class CardanoScanAPI:
         # Tentar alguns endpoints conhecidos do CardanoScan
         meta = self._try_fetch("/token/info", params) or self._try_fetch("/token/metadata", params)
         if not meta:
+            # Guardar cache negativo (não fazer mais pedidos para este token)
+            if cache_key:
+                self._asset_meta_cache[negative_key] = {}
             return None
 
         # Enriquecer com name/decimals resolvidos
@@ -346,6 +350,7 @@ class CardanoScanAPI:
     def get_token_name(self, token: Dict) -> str:
         """
         Extrai nome do token de forma amigável.
+        OTIMIZAÇÃO: early returns e verificações mínimas.
         
         Args:
             token: Dicionário com informações do token
@@ -353,49 +358,50 @@ class CardanoScanAPI:
         Returns:
             Nome do token
         """
-        # Override por policyId (para tokens sem assetName ou metadata)
         policy_id = token.get("policyId") or token.get("policy")
-        if policy_id:
-            # Correspondência exata
-            if policy_id in self.TOKEN_NAMES_BY_POLICY:
-                return self.TOKEN_NAMES_BY_POLICY[policy_id]
-            # Correspondência por prefixo
-            for key, name in self.TOKEN_NAMES_BY_POLICY.items():
-                if policy_id.lower().startswith(key.lower()):
-                    return name
         
-        # Tentar metadados do explorer
-        asset_hex = token.get("assetName") or token.get("asset_name") or token.get("name")
-        meta = self.get_asset_metadata(policy_id, asset_hex)
-        if meta and isinstance(meta, dict):
-            nm = meta.get("resolved_name")
-            if isinstance(nm, str) and nm.strip():
-                return nm
-
-        # Candidatos a nome direto (não-hex)
+        # Candidatos a nome direto (não-hex) - verificar ANTES de metadata
         candidates = [
             token.get("ticker"), token.get("symbol"), token.get("tokenName"),
-            token.get("name"), token.get("assetName"), token.get("asset_name"),
         ]
-        # Primeiro: se algum for string não-hex com conteúdo, usar
         for cand in candidates:
             if isinstance(cand, str) and cand.strip():
                 s = cand.strip()
-                # Se não parecer hex, usar diretamente
+                # Se não parecer hex, usar diretamente (early return)
                 if not all(c in '0123456789abcdefABCDEF' for c in s):
                     return s
         
-        # Depois: tentar decodificar hex
-        name = token.get("name") or token.get("assetName") or token.get("asset_name") or ""
+        # Tentar metadados do explorer (pode ser lento, só se necessário)
+        asset_hex = token.get("assetName") or token.get("asset_name") or token.get("name")
+        if asset_hex:  # Só buscar metadata se houver assetName
+            meta = self.get_asset_metadata(policy_id, asset_hex)
+            if meta and isinstance(meta, dict):
+                nm = meta.get("resolved_name")
+                if isinstance(nm, str) and nm.strip():
+                    return nm
+
+        # Mais candidatos (campos menos prioritários)
+        more_candidates = [
+            token.get("name"), token.get("assetName"), token.get("asset_name"),
+        ]
+        for cand in more_candidates:
+            if isinstance(cand, str) and cand.strip():
+                s = cand.strip()
+                if not all(c in '0123456789abcdefABCDEF' for c in s):
+                    return s
+        
+        # Tentar decodificar hex do assetName
+        name = asset_hex or ""
         if name:
             decoded = self._decode_hex_ascii(name)
             if decoded:
                 return decoded
-            # Fallback: usar o hex como está
-            return name
         
-        policy = token.get("policyId", "")[:12]
-        return f"Token {policy}..."
+        # Se não tem assetName ou não conseguiu decodificar, mostrar policy ID
+        if policy_id:
+            return policy_id
+        
+        return "Token desconhecido"
     
     def _resolve_decimals(self, policy_id: Optional[str], token_name: Optional[str], asset_name_hex: Optional[str] = None) -> int:
         """
@@ -468,6 +474,9 @@ class CardanoScanAPI:
         # Utilizamos um mapa detalhado por (policyId, assetName/name) para não perder metadados
         token_balances = {}
         
+        # OTIMIZAÇÃO: coletar todos os tokens únicos primeiro, depois fazer batch de metadata
+        unique_tokens = set()
+        
         # Analisar inputs (de onde veio o ADA)
         for inp in inputs:
             addr = inp.get("address", "").lower()
@@ -482,8 +491,7 @@ class CardanoScanAPI:
                     key = (policy_id, asset_name)
                     token_qty = int(token.get("value", token.get("quantity", token.get("amount", 0))))
                     token_balances[key] = token_balances.get(key, 0) - token_qty
-                    # Pré-carregar metadados em cache
-                    self.get_asset_metadata(policy_id, asset_name)
+                    unique_tokens.add(key)
         
         # Analisar outputs (para onde foi o ADA)
         for out in outputs:
@@ -499,8 +507,12 @@ class CardanoScanAPI:
                     key = (policy_id, asset_name)
                     token_qty = int(token.get("value", token.get("quantity", token.get("amount", 0))))
                     token_balances[key] = token_balances.get(key, 0) + token_qty
-                    # Pré-carregar metadados em cache
-                    self.get_asset_metadata(policy_id, asset_name)
+                    unique_tokens.add(key)
+        
+        # OTIMIZAÇÃO: pré-carregar metadata apenas para tokens únicos (reduz chamadas API)
+        for policy_id, asset_name in unique_tokens:
+            if policy_id:  # Apenas se tiver policy
+                self.get_asset_metadata(policy_id, asset_name)
         
         # Calcular diferença líquida
         net_change = total_output_user - total_input_user

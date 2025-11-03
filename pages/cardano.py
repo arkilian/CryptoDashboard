@@ -108,11 +108,13 @@ def show_transactions_tab(api, address):
             date_key = timestamp.strftime("%b %d, %Y")
             grouped[date_key].append(tx)
         
-        # Mostrar agrupado por data
-        for date_str, txs in grouped.items():
+        # Mostrar agrupado por data (ordem inversa - mais recentes primeiro)
+        for date_str in sorted(grouped.keys(), reverse=True, key=lambda x: datetime.strptime(x, "%b %d, %Y")):
+            txs = grouped[date_str]
             st.markdown(f"<div style='color: #6b7280; font-size: 0.9rem; margin: 1.5rem 0 0.75rem 0; font-weight: 500;'>{date_str}</div>", unsafe_allow_html=True)
             
-            for tx in txs:
+            # Inverter ordem das transações dentro do dia (mais recentes primeiro)
+            for tx in reversed(txs):
                 analysis = api.analyze_transaction(tx, address)
                 
                 # Definir icone e cor

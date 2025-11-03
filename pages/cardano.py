@@ -2,15 +2,7 @@
 import pandas as pd
 from services.cardano_api import CardanoScanAPI
 from datetime import datetime
-import os
-from dotenv import load_dotenv
-
-# Load environment variables from .env (project root)
-load_dotenv()
-
-# Read sensitive configs from environment
-API_KEY = os.getenv("API_KEY")
-DEFAULT_ADDRESS = os.getenv("DEFAULT_ADDRESS")
+from database.api_config import get_active_apis
 
 def show():
     """Pagina principal do Cardano."""
@@ -18,28 +10,42 @@ def show():
     st.title("🔷 Cardano Blockchain Explorer")
     st.markdown("Consulte informações de endereços Cardano em tempo real")
     
-    # Ensure API key is configured
-    if not API_KEY:
-        st.error("🚫 API_KEY não encontrada. Defina a variável API_KEY no ficheiro .env na raiz do projeto.")
+    # Buscar configurações da API na base de dados
+    apis = get_active_apis()
+    
+    if not apis:
+        st.error("🚫 Nenhuma API Cardano configurada.")
+        st.info("👉 Vá para **Configurações → APIs Cardano** para adicionar uma API.")
+        if st.button("⚙️ Ir para Configurações"):
+            st.switch_page("pages/settings.py")
         return
-
-    api = CardanoScanAPI(API_KEY)
+    
+    # Usar a primeira API ativa
+    api_config = apis[0]
+    api_key = api_config['api_key']
+    default_address = api_config.get('default_address')
+    
+    api = CardanoScanAPI(api_key)
+    
     col1, col2 = st.columns([3, 1])
     with col1:
         address = st.text_input(
             "📍 Endereço Cardano (formato bech32)",
-            value=st.session_state.get("cardano_address", DEFAULT_ADDRESS),
+            value=st.session_state.get("cardano_address", default_address or ""),
             help="Insira um endereço Cardano válido começando com 'addr1'"
         )
     
     with col2:
         st.markdown("<br>", unsafe_allow_html=True)
         refresh = st.button("🔄 Atualizar", use_container_width=True, type="primary")
+    
     if address:
         st.session_state["cardano_address"] = address
+    
     if not address or not address.startswith("addr1"):
         st.warning("⚠️ Por favor, insira um endereço Cardano válido (deve começar com 'addr1')")
         return
+    
     tab1, tab2, tab3, tab4 = st.tabs(["💰 Saldo e Tokens", "🎯 Staking", "📜 Transações", "ℹ️ Informações"])
     with tab1:
         show_balance_tab(api, address)

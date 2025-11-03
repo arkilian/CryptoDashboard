@@ -114,14 +114,6 @@ def get_price_by_symbol(symbols: List[str], vs_currency: str = "eur") -> Dict[st
     if not symbols:
         return {}
 
-    # Identificar caller para debugging
-    import traceback
-    try:
-        caller_info = traceback.extract_stack()[-2]
-        caller_location = f"{caller_info.filename.split('CryptoDashboard')[-1]}:{caller_info.lineno}"
-    except:
-        caller_location = "unknown"
-
     # Criar cache key baseado nos símbolos e moeda
     cache_key = f"{'-'.join(sorted(symbols))}_{vs_currency}"
     now = time.time()
@@ -130,10 +122,10 @@ def get_price_by_symbol(symbols: List[str], vs_currency: str = "eur") -> Dict[st
     if cache_key in _price_cache:
         cache_time, cached_prices = _price_cache[cache_key]
         if now - cache_time < _price_cache_ttl:
-            logger.info(f"💾 Cache HIT para preços: {symbols[:3]}{'...' if len(symbols) > 3 else ''} [from {caller_location}]")
+            logger.info(f"💾 Cache HIT para preços: {symbols[:3]}{'...' if len(symbols) > 3 else ''}")
             return cached_prices
 
-    logger.info(f"🔍 Cache MISS - chamando API para {symbols[:3]}{'...' if len(symbols) > 3 else ''} [from {caller_location}]")
+    logger.info(f"🔍 Cache MISS - chamando API para {symbols[:3]}{'...' if len(symbols) > 3 else ''}")
 
     # Mapeia símbolos para ids
     symbol_id_map: Dict[str, str] = {}
@@ -157,14 +149,15 @@ def get_price_by_symbol(symbols: List[str], vs_currency: str = "eur") -> Dict[st
     }
     url = f"{BASE_URL}/simple/price"
 
-    # Retry on transient errors (e.g., 429) with exponential backoff MAIS LONGO
-    retries = 5  # Aumentar tentativas
-    backoff = 3.0  # Começar com 3 segundos
+    # Retry on transient errors (e.g., 429) with exponential backoff
+    retries = 5
+    backoff = 3.0
     for attempt in range(retries):
         try:
             # Rate limiter global - garantir delay mínimo entre chamadas
             global _last_api_call_time
-            time_since_last_call = now - _last_api_call_time
+            current_time = time.time()
+            time_since_last_call = current_time - _last_api_call_time
             if time_since_last_call < _min_delay_between_calls:
                 wait_time = _min_delay_between_calls - time_since_last_call
                 logger.info(f"⏱️ Rate limiter: aguardando {wait_time:.2f}s antes da chamada API")
@@ -187,7 +180,7 @@ def get_price_by_symbol(symbols: List[str], vs_currency: str = "eur") -> Dict[st
                     prices[sym] = None
 
             # Guardar no cache
-            _price_cache[cache_key] = (now, prices)
+            _price_cache[cache_key] = (time.time(), prices)
             logger.info(f"✅ Preços obtidos da API: {symbols[:3]}{'...' if len(symbols) > 3 else ''}")
             
             return prices

@@ -1,4 +1,19 @@
-# Byte-compiled / optimized / DLL files
+# Environment and local config
+.env
+.env.*
+*.env
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# VSCode
+.vscode/
+
+# Logs
+logs/# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
 *$py.class

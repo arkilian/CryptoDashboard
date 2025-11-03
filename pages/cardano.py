@@ -2,9 +2,18 @@
 import pandas as pd
 from services.cardano_api import CardanoScanAPI
 from datetime import datetime
+import os
+from dotenv import load_dotenv
 
-API_KEY = "771d0a8a-9978-40b4-b60b-3fa873e5209d"
-DEFAULT_ADDRESS = "addr1q86l9qs02uhmh95yj8vgmecky4yfkxlctaae8axx0xut63p42ytjhzpls30rpmffa6y335yrxcuzh0q55d30ramjyefqvyf4rw"
+# Load environment variables from .env (project root)
+load_dotenv()
+
+# Read sensitive configs from environment
+API_KEY = os.getenv("API_KEY")
+DEFAULT_ADDRESS = os.getenv(
+    "DEFAULT_ADDRESS",
+    "addr1q86l9qs02uhmh95yj8vgmecky4yfkxlctaae8axx0xut63p42ytjhzpls30rpmffa6y335yrxcuzh0q55d30ramjyefqvyf4rw",
+)
 
 def show():
     """Pagina principal do Cardano."""
@@ -12,6 +21,11 @@ def show():
     st.title("🔷 Cardano Blockchain Explorer")
     st.markdown("Consulte informações de endereços Cardano em tempo real")
     
+    # Ensure API key is configured
+    if not API_KEY:
+        st.error("🚫 API_KEY não encontrada. Defina a variável API_KEY no ficheiro .env na raiz do projeto.")
+        return
+
     api = CardanoScanAPI(API_KEY)
     col1, col2 = st.columns([3, 1])
     with col1:

@@ -5,12 +5,16 @@ realizadas na carteira do fundo (compras e vendas de criptomoedas).
 """
 import streamlit as st
 import pandas as pd
+import time
 from datetime import datetime
 from database.connection import get_engine
 from sqlalchemy import text
 import requests
 from utils.tags import ensure_default_tags, get_all_tags, build_tags_where_clause, set_transaction_tags
 from components.transaction_form_v2 import render_transaction_form
+
+# Cache TTL for reference data (in seconds)
+CACHE_TTL_SHORT = 120  # 2 minutes for reference data
 
 def show():
     """Exibe a página de transações."""
@@ -73,16 +77,15 @@ def show():
         st.metric("💶 Saldo disponível (EUR)", f"€{available_cash:,.2f}")
 
         # Buscar ativos disponíveis (with caching for performance)
-        import time
         cache_key = "tx_assets_list"
         cache_time_key = "tx_assets_list_time"
         
         current_time = time.time()
         
-        # Check if cache is valid (2 minutes TTL)
+        # Check if cache is valid
         if (cache_key in st.session_state and 
             cache_time_key in st.session_state and
-            current_time - st.session_state[cache_time_key] < 120):
+            current_time - st.session_state[cache_time_key] < CACHE_TTL_SHORT):
             df_assets = st.session_state[cache_key]
         else:
             df_assets = pd.read_sql("SELECT asset_id, symbol, name, coingecko_id FROM t_assets ORDER BY symbol", engine)
@@ -99,7 +102,7 @@ def show():
             # Check if cache is valid (2 minutes TTL)
             if (cache_key_ex in st.session_state and 
                 cache_time_key_ex in st.session_state and
-                current_time - st.session_state[cache_time_key_ex] < 120):
+                current_time - st.session_state[cache_time_key_ex] < CACHE_TTL_SHORT):
                 df_exchanges = st.session_state[cache_key_ex]
             else:
                 df_exchanges = pd.read_sql("SELECT exchange_id, name FROM t_exchanges ORDER BY name", engine)
@@ -329,13 +332,12 @@ def show():
             cache_key = "tx_assets_filter"
             cache_time_key = "tx_assets_filter_time"
             
-            import time
             current_time = time.time()
             
-            # Check if cache is valid (2 minutes TTL)
+            # Check if cache is valid
             if (cache_key in st.session_state and 
                 cache_time_key in st.session_state and
-                current_time - st.session_state[cache_time_key] < 120):
+                current_time - st.session_state[cache_time_key] < CACHE_TTL_SHORT):
                 df_assets_filter = st.session_state[cache_key]
             else:
                 df_assets_filter = pd.read_sql("SELECT asset_id, symbol FROM t_assets ORDER BY symbol", engine)
@@ -360,7 +362,7 @@ def show():
         # Check if cache is valid (2 minutes TTL)
         if (cache_key in st.session_state and 
             cache_time_key in st.session_state and
-            current_time - st.session_state[cache_time_key] < 120):
+            current_time - st.session_state[cache_time_key] < CACHE_TTL_SHORT):
             df_all_accounts = st.session_state[cache_key]
         else:
             df_all_accounts = pd.read_sql(

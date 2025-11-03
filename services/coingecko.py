@@ -168,6 +168,7 @@ def get_price_by_symbol(symbols: List[str], vs_currency: str = "eur") -> Dict[st
                 time.sleep(backoff)
             
             _last_api_call_time = time.time()  # Atualizar timestamp
+            cache_timestamp = _last_api_call_time  # Capture timestamp for cache
             resp = requests.get(url, params=params, timeout=15)
             resp.raise_for_status()
             data = resp.json()
@@ -180,7 +181,7 @@ def get_price_by_symbol(symbols: List[str], vs_currency: str = "eur") -> Dict[st
                     prices[sym] = None
 
             # Guardar no cache
-            _price_cache[cache_key] = (time.time(), prices)
+            _price_cache[cache_key] = (cache_timestamp, prices)
             logger.info(f"✅ Preços obtidos da API: {symbols[:3]}{'...' if len(symbols) > 3 else ''}")
             
             return prices

@@ -1,12 +1,17 @@
 import streamlit as st
 import pandas as pd
 from datetime import date
+import time
 import plotly.express as px
 import plotly.graph_objects as go
 from database.connection import get_connection, return_connection, get_engine
 from auth.session_manager import require_auth
 from css.charts import apply_theme
 from utils.tags import ensure_default_tags, get_all_tags, build_tags_where_clause
+
+# Cache TTL for reference data (in seconds)
+CACHE_TTL_SHORT = 120  # 2 minutes for frequently changing data
+CACHE_TTL_LONG = 300   # 5 minutes for relatively static data
 
 
 def _calculate_holdings_vectorized(df_tx):
@@ -68,10 +73,10 @@ def show():
             import time
             current_time = time.time()
             
-            # Check if cache is valid (30 seconds TTL)
+            # Check if cache is valid
             if (cache_key in st.session_state and 
                 cache_time_key in st.session_state and
-                current_time - st.session_state[cache_time_key] < 30):
+                current_time - st.session_state[cache_time_key] < CACHE_TTL_SHORT):
                 df_users = st.session_state[cache_key]
             else:
                 df_users = pd.read_sql(
@@ -121,10 +126,10 @@ def show():
         import time
         current_time = time.time()
         
-        # Check if cache is valid (2 minutes TTL)
+        # Check if cache is valid
         if (cache_key in st.session_state and 
             cache_time_key in st.session_state and
-            current_time - st.session_state[cache_time_key] < 120):
+            current_time - st.session_state[cache_time_key] < CACHE_TTL_SHORT):
             df_all_accounts = st.session_state[cache_key]
         else:
             df_all_accounts = pd.read_sql(
@@ -341,10 +346,10 @@ def show():
                             
                             current_time = time.time()
                             
-                            # Check if cache is valid (5 minutes TTL for reference data)
+                            # Check if cache is valid
                             if (cache_key in st.session_state and 
                                 cache_time_key in st.session_state and
-                                current_time - st.session_state[cache_time_key] < 300):
+                                current_time - st.session_state[cache_time_key] < CACHE_TTL_LONG):
                                 df_assets_map = st.session_state[cache_key]
                             else:
                                 df_assets_map = pd.read_sql("SELECT asset_id, symbol FROM t_assets", engine)

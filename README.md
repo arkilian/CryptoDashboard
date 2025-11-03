@@ -115,7 +115,62 @@ Dashboard completo com três componentes principais:
 - Lista completa de ativos disponíveis para trading
 - Integração com sistema de transações
 
-### 📄 Gestão de Documentos (Admin)
+### � Blockchain Cardano Explorer
+**Nova funcionalidade**: Explorador completo da blockchain Cardano integrado ao dashboard.
+
+- **💰 Saldo e Tokens**:
+  - Consulta de saldo ADA em qualquer endereço Cardano
+  - Lista completa de tokens nativos com metadados automáticos
+  - Nomes e decimais resolvidos automaticamente via CardanoScan API
+  - Cache inteligente de metadados para performance
+  
+- **🎯 Staking**:
+  - Status de delegação (pool delegado ou não)
+  - Informações completas do pool (nome, ticker, fees)
+  - Recompensas totais, disponíveis e já levantadas
+  - Stake controlado pela conta
+  
+- **📜 Transações**:
+  - Histórico completo de transações (paginação inteligente)
+  - Análise automática: enviado, recebido ou contrato
+  - Detalhes de tokens movimentados em cada transação
+  - Ordenação cronológica (mais recentes primeiro)
+  - Links para CardanoScan explorer
+  - Carregamento por páginas (últimas páginas = mais recentes)
+  
+- **Configuração via Base de Dados**:
+  - APIs configuradas em `t_api_cardano` (sem hardcode)
+  - Múltiplas wallets geridas em `t_wallet`
+  - Suporte a stake addresses
+  - Filtro por utilizador (admin vê todas)
+
+### 🏦 Gestão de Bancos e Wallets
+**Nova funcionalidade**: Gestão centralizada de contas bancárias e wallets de criptomoedas.
+
+- **🏦 Contas Bancárias** (`t_banco`):
+  - Cadastro completo: banco, titular, IBAN, SWIFT/BIC
+  - Validação de IBAN
+  - Tipos de conta: corrente, poupança, empresarial, investimento
+  - Definir conta principal por utilizador
+  - Filtro por moeda e país
+  
+- **👛 Wallets** (`t_wallet`):
+  - Suporte multi-blockchain: Cardano, Ethereum, Bitcoin, Solana
+  - Tipos: hot, cold, hardware, exchange, DeFi
+  - Endereço principal + stake address (para Cardano)
+  - Definir wallet principal por utilizador
+  - Sincronização de saldo (preparado para automação)
+  
+- **🔌 APIs Cardano** (`t_api_cardano`):
+  - Gestão centralizada de chaves de API
+  - Múltiplas APIs configuráveis
+  - Rate limit e timeout por API
+  - Endereço padrão por API
+  - Ativar/desativar APIs sem remover
+
+**Página de Configurações**: Interface completa para admins gerirem bancos, wallets e APIs sem editar código.
+
+### �📄 Gestão de Documentos (Admin)
 - Upload e visualização de PDFs
 - Documentos típicos: regulamento, estratégia de investimento, roadmap
 - Acesso para todos os utilizadores
@@ -170,10 +225,13 @@ O sistema suporta implementação de:
 - **Frontend**: Streamlit (Python)
 - **Backend**: Python 3.10+
 - **Base de Dados**: PostgreSQL
-- **APIs Externas**: CoinGecko (preços de criptomoedas)
+- **APIs Externas**: 
+  - CoinGecko (preços de criptomoedas)
+  - CardanoScan API v1 (blockchain Cardano)
 - **Autenticação**: bcrypt para hash de passwords
 - **Gráficos**: Plotly
 - **Cache**: Sistema próprio de snapshots em PostgreSQL
+- **Blockchain**: Integração nativa com Cardano (balance, staking, transactions)
 
 ## 📚 Documentação Completa
 
@@ -186,9 +244,16 @@ Para documentação técnica detalhada, arquitetura, guias de setup e modelo de 
 - [👤 Guias de Utilizador](wiki/05-guias-utilizador.md)
 - [🚀 Setup e Deployment](wiki/06-setup-deployment.md)
 - [🧩 Modelo de Transações V2](wiki/07-transaction-model-v2.md)
+- [🔷 Integração Blockchain Cardano](wiki/08-cardano-integration.md)
 
 ## 🎯 Roadmap
 
+- [x] Sistema de Shares/NAV
+- [x] Cache de preços históricos (snapshots)
+- [x] Modelo de transações V2 (multi-asset/multi-conta)
+- [x] Explorador Cardano (balance, staking, transactions)
+- [x] Gestão de wallets e contas bancárias
+- [x] Configuração de APIs via base de dados
 - [ ] Sistema de notificações (email/push)
 - [ ] Relatórios mensais automatizados
 - [ ] Implementação completa de taxas de gestão

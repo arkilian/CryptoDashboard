@@ -162,7 +162,9 @@ def show_transactions_tab(api, address):
                         if qty != 0:
                             token_sign = "+" if qty > 0 else ""
                             token_color = "#10b981" if qty > 0 else "#ef4444"
-                            token_html = f"<div style='color: {token_color}; font-size: 0.85rem; margin-top: 0.15rem;'>{token_sign}{qty:.1f} {token_name}</div>"
+                            # Formatar com até 6 casas decimais, removendo zeros à direita
+                            qty_formatted = f"{qty:.6f}".rstrip('0').rstrip('.')
+                            token_html = f"<div style='color: {token_color}; font-size: 0.85rem; margin-top: 0.15rem;'>{token_sign}{qty_formatted} {token_name}</div>"
                             break
                 
                 # Card com mais informações - construir em partes

@@ -12,6 +12,19 @@ class CardanoScanAPI:
     
     BASE_URL = "https://api.cardanoscan.io/api/v1"
     
+    # Mapa de tokens conhecidos e suas casas decimais
+    TOKEN_DECIMALS = {
+        "DjedMicroUSD": 6,  # DJED tem 6 decimais
+        "DJED": 6,
+        "SHEN": 6,
+        "USDC": 6,
+        "USDT": 6,
+        "AGIX": 8,
+        "WMT": 6,
+        "MIN": 6,
+        "SUNDAE": 6,
+    }
+    
     def __init__(self, api_key: str):
         """
         Inicializa o cliente da API CardanoScan.
@@ -213,6 +226,26 @@ class CardanoScanAPI:
         policy = token.get("policyId", "")[:12]
         return f"Token {policy}..."
     
+    def format_token_amount(self, amount: int, token_name: str) -> float:
+        """
+        Formata quantidade de token baseado nas casas decimais conhecidas.
+        
+        Args:
+            amount: Quantidade bruta do token
+            token_name: Nome do token
+            
+        Returns:
+            Quantidade formatada como float
+        """
+        # Verificar se é um token conhecido
+        decimals = self.TOKEN_DECIMALS.get(token_name, 0)
+        
+        if decimals > 0:
+            return amount / (10 ** decimals)
+        else:
+            # Se não conhecemos o token, assumir que não tem decimais
+            return float(amount)
+    
     def analyze_transaction(self, tx: Dict, user_address: str) -> Dict:
         """
         Analisa uma transação e determina se foi enviada ou recebida pelo endereço.
@@ -309,7 +342,9 @@ class CardanoScanAPI:
             sent = tokens_sent.get(token, 0)
             net = received - sent
             if net != 0:
-                net_tokens[token] = net
+                # Formatar quantidade baseado nas casas decimais
+                net_formatted = self.format_token_amount(net, token)
+                net_tokens[token] = net_formatted
         
         return {
             "type": tx_type,

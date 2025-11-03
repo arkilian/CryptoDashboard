@@ -113,11 +113,26 @@ def show():
         st.markdown("---")
         st.markdown("#### Filtros de Origem (Contas) e Estratégia (Tags)")
         colc1, colc2, colc3 = st.columns([2, 2, 1])
-        # Carregar contas
-        df_all_accounts = pd.read_sql(
-            "SELECT ea.account_id, e.name AS exchange, ea.name AS account, COALESCE(ea.account_category,'') AS category FROM t_exchange_accounts ea JOIN t_exchanges e ON ea.exchange_id = e.exchange_id ORDER BY e.name, ea.name",
-            engine
-        )
+        
+        # Carregar contas (with caching)
+        cache_key = "all_accounts"
+        cache_time_key = "all_accounts_time"
+        
+        import time
+        current_time = time.time()
+        
+        # Check if cache is valid (2 minutes TTL)
+        if (cache_key in st.session_state and 
+            cache_time_key in st.session_state and
+            current_time - st.session_state[cache_time_key] < 120):
+            df_all_accounts = st.session_state[cache_key]
+        else:
+            df_all_accounts = pd.read_sql(
+                "SELECT ea.account_id, e.name AS exchange, ea.name AS account, COALESCE(ea.account_category,'') AS category FROM t_exchange_accounts ea JOIN t_exchanges e ON ea.exchange_id = e.exchange_id ORDER BY e.name, ea.name",
+                engine
+            )
+            st.session_state[cache_key] = df_all_accounts
+            st.session_state[cache_time_key] = current_time
         with colc1:
             # Optimized: Use vectorized string concatenation instead of iterrows()
             account_filter_options = (df_all_accounts['exchange'] + ' - ' + df_all_accounts['account']).tolist()
@@ -320,8 +335,22 @@ def show():
                                 params=(end_date, end_date, end_date)
                             )
 
-                            # Mapear asset_id -> symbol
-                            df_assets_map = pd.read_sql("SELECT asset_id, symbol FROM t_assets", engine)
+                            # Mapear asset_id -> symbol (with caching)
+                            cache_key = "assets_mapping"
+                            cache_time_key = "assets_mapping_time"
+                            
+                            current_time = time.time()
+                            
+                            # Check if cache is valid (5 minutes TTL for reference data)
+                            if (cache_key in st.session_state and 
+                                cache_time_key in st.session_state and
+                                current_time - st.session_state[cache_time_key] < 300):
+                                df_assets_map = st.session_state[cache_key]
+                            else:
+                                df_assets_map = pd.read_sql("SELECT asset_id, symbol FROM t_assets", engine)
+                                st.session_state[cache_key] = df_assets_map
+                                st.session_state[cache_time_key] = current_time
+                            
                             df_deltas = df_deltas.merge(df_assets_map, on='asset_id', how='left')
                             
                             # Buscar todos os movimentos de capital até o período

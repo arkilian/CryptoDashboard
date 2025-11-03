@@ -72,14 +72,39 @@ def show():
 
         st.metric("💶 Saldo disponível (EUR)", f"€{available_cash:,.2f}")
 
-        # Buscar ativos disponíveis (inclui coingecko_id para preço de mercado)
-        df_assets = pd.read_sql("SELECT asset_id, symbol, name, coingecko_id FROM t_assets ORDER BY symbol", engine)
+        # Buscar ativos disponíveis (with caching for performance)
+        import time
+        cache_key = "tx_assets_list"
+        cache_time_key = "tx_assets_list_time"
+        
+        current_time = time.time()
+        
+        # Check if cache is valid (2 minutes TTL)
+        if (cache_key in st.session_state and 
+            cache_time_key in st.session_state and
+            current_time - st.session_state[cache_time_key] < 120):
+            df_assets = st.session_state[cache_key]
+        else:
+            df_assets = pd.read_sql("SELECT asset_id, symbol, name, coingecko_id FROM t_assets ORDER BY symbol", engine)
+            st.session_state[cache_key] = df_assets
+            st.session_state[cache_time_key] = current_time
         
         if df_assets.empty:
             st.warning("⚠️ Nenhum ativo encontrado. Adicione ativos primeiro na página de configurações.")
         else:
-            # Buscar exchanges disponíveis
-            df_exchanges = pd.read_sql("SELECT exchange_id, name FROM t_exchanges ORDER BY name", engine)
+            # Buscar exchanges disponíveis (with caching)
+            cache_key_ex = "tx_exchanges_list"
+            cache_time_key_ex = "tx_exchanges_list_time"
+            
+            # Check if cache is valid (2 minutes TTL)
+            if (cache_key_ex in st.session_state and 
+                cache_time_key_ex in st.session_state and
+                current_time - st.session_state[cache_time_key_ex] < 120):
+                df_exchanges = st.session_state[cache_key_ex]
+            else:
+                df_exchanges = pd.read_sql("SELECT exchange_id, name FROM t_exchanges ORDER BY name", engine)
+                st.session_state[cache_key_ex] = df_exchanges
+                st.session_state[cache_time_key_ex] = current_time
             
             # Data da transação (antes de tudo para estar disponível no botão)
             transaction_date = st.date_input("Data da Transação", value=datetime.now().date(), key="tx_date_input")
@@ -300,8 +325,23 @@ def show():
             )
         
         with col2:
-            # Buscar símbolos e IDs para filtrar por ativo em todas as colunas relevantes (V2)
-            df_assets_filter = pd.read_sql("SELECT asset_id, symbol FROM t_assets ORDER BY symbol", engine)
+            # Buscar símbolos e IDs para filtrar por ativo (with caching)
+            cache_key = "tx_assets_filter"
+            cache_time_key = "tx_assets_filter_time"
+            
+            import time
+            current_time = time.time()
+            
+            # Check if cache is valid (2 minutes TTL)
+            if (cache_key in st.session_state and 
+                cache_time_key in st.session_state and
+                current_time - st.session_state[cache_time_key] < 120):
+                df_assets_filter = st.session_state[cache_key]
+            else:
+                df_assets_filter = pd.read_sql("SELECT asset_id, symbol FROM t_assets ORDER BY symbol", engine)
+                st.session_state[cache_key] = df_assets_filter
+                st.session_state[cache_time_key] = current_time
+                
             assets_list = ["Todos"] + df_assets_filter['symbol'].tolist()
             symbol_to_id = dict(zip(df_assets_filter['symbol'], df_assets_filter['asset_id']))
             filter_asset = st.selectbox("Filtrar por ativo", assets_list, key="filter_asset")
@@ -312,11 +352,23 @@ def show():
         # Linha 2 de filtros: filtros por Conta e Categoria de Conta
         st.markdown("")
         colc1, colc2, colc3 = st.columns([2, 2, 1])
-        # Contas disponíveis
-        df_all_accounts = pd.read_sql(
-            "SELECT ea.account_id, e.name AS exchange, ea.name AS account, COALESCE(ea.account_category,'') AS category FROM t_exchange_accounts ea JOIN t_exchanges e ON ea.exchange_id = e.exchange_id ORDER BY e.name, ea.name",
-            engine
-        )
+        
+        # Contas disponíveis (with caching)
+        cache_key = "tx_all_accounts"
+        cache_time_key = "tx_all_accounts_time"
+        
+        # Check if cache is valid (2 minutes TTL)
+        if (cache_key in st.session_state and 
+            cache_time_key in st.session_state and
+            current_time - st.session_state[cache_time_key] < 120):
+            df_all_accounts = st.session_state[cache_key]
+        else:
+            df_all_accounts = pd.read_sql(
+                "SELECT ea.account_id, e.name AS exchange, ea.name AS account, COALESCE(ea.account_category,'') AS category FROM t_exchange_accounts ea JOIN t_exchanges e ON ea.exchange_id = e.exchange_id ORDER BY e.name, ea.name",
+                engine
+            )
+            st.session_state[cache_key] = df_all_accounts
+            st.session_state[cache_time_key] = current_time
         with colc1:
             # Optimized: Use vectorized string concatenation instead of iterrows()
             account_filter_options = (df_all_accounts['exchange'] + ' - ' + df_all_accounts['account']).tolist()

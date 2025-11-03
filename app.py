@@ -2,6 +2,7 @@ import streamlit as st
 from auth.login import show_login_page
 from auth.register import show_register_page
 from pages.portfolio import show_portfolio_page
+from pages.portfolio_v3 import show as show_portfolio_v3
 from pages.portfolio_analysis import show as show_portfolio_analysis_page
 from pages.settings import show_settings_page
 from pages.prices import show as show_prices_page
@@ -102,6 +103,7 @@ def main():
     # Menu comum para todos os usuários
     menu_options = [
         "📊 Análise de Portfólio",
+        "📈 Portfólio v3",
         #"📈 Portfólio",
         "💰 Cotações",
         "🔷 Cardano",
@@ -136,6 +138,8 @@ def main():
         show_transactions_page()
     elif menu == "📊 Análise de Portfólio":
         show_portfolio_analysis_page()
+    elif menu == "📈 Portfólio v3":
+        show_portfolio_v3()
     #elif menu == "📈 Portfólio":
     #    show_portfolio_page()
     elif menu == "💰 Cotações":

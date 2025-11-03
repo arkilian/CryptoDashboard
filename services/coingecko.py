@@ -11,6 +11,7 @@ Implementação:
 - Tem caching in-memory com TTL para reduzir chamadas à API.
 """
 from typing import List, Dict, Optional
+from datetime import date
 import requests
 import time
 import logging
@@ -207,6 +208,75 @@ if __name__ == "__main__":
     # Quick manual test (não executa em import)
     test_symbols = ["BTC", "ETH", "ADA", "NONEXISTENT"]
     print(get_price_by_symbol(test_symbols, "eur"))
+
+
+# ---------- Extra helpers for rate-limited, ID-based calls ----------
+def _rate_limited_get(url: str, params: Optional[dict] = None, timeout: int = 15, retries: int = 5) -> Optional[dict]:
+    """Internal helper to perform a GET with global rate limiting and backoff.
+
+    Returns parsed JSON dict on success, or None on failure after retries.
+    """
+    global _last_api_call_time
+    backoff = 3.0
+    for attempt in range(retries):
+        try:
+            # Enforce global min delay between calls
+            now = time.time()
+            elapsed = now - _last_api_call_time
+            if elapsed < _min_delay_between_calls:
+                time.sleep(_min_delay_between_calls - elapsed)
+
+            # Additional backoff between retries
+            if attempt > 0:
+                time.sleep(backoff)
+
+            _last_api_call_time = time.time()
+            resp = requests.get(url, params=params or {}, timeout=timeout)
+            resp.raise_for_status()
+            return resp.json()
+        except requests.RequestException as e:
+            logger.warning("Tentativa %d/%d: erro em chamada CoinGecko: %s", attempt + 1, retries, e)
+            if attempt == retries - 1:
+                logger.error("Falha após %d tentativas: %s", retries, e)
+                return None
+            backoff *= 2.0
+
+
+def get_current_price_by_id(coin_id: str, vs_currency: str = "eur") -> Optional[float]:
+    """Get current price for a specific CoinGecko coin id, with rate limiting and retries."""
+    url = f"{BASE_URL}/simple/price"
+    data = _rate_limited_get(url, params={"ids": coin_id, "vs_currencies": vs_currency}, timeout=15, retries=5)
+    if not data:
+        return None
+    try:
+        value = data.get(coin_id, {}).get(vs_currency)
+        return float(value) if value is not None else None
+    except Exception:
+        return None
+
+
+def get_historical_price_by_id(coin_id: str, target_date: date, vs_currency: str = "eur") -> Optional[float]:
+    """Get historical price for a specific CoinGecko coin id and date (DD-MM-YYYY), with rate limiting.
+
+    Uses /coins/{id}/history.
+    """
+    # Format date as DD-MM-YYYY per API
+    try:
+        date_str = target_date.strftime("%d-%m-%Y")
+    except Exception:
+        # If a str was passed, assume it's already correct
+        date_str = str(target_date)
+    url = f"{BASE_URL}/coins/{coin_id}/history"
+    data = _rate_limited_get(url, params={"date": date_str, "localization": "false"}, timeout=20, retries=5)
+    if not data:
+        return None
+    try:
+        market_data = data.get("market_data", {})
+        current_price = market_data.get("current_price", {})
+        value = current_price.get(vs_currency)
+        return float(value) if value is not None else None
+    except Exception:
+        return None
 
 
 class CoinGeckoService:

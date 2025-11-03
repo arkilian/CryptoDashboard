@@ -12,7 +12,7 @@ from typing import List, Dict, Optional
 import pandas as pd
 from sqlalchemy import text
 from database.connection import get_engine
-from services.coingecko import CoinGeckoService
+from services.coingecko import CoinGeckoService, get_current_price_by_id, get_historical_price_by_id
 import time
 
 logger = logging.getLogger(__name__)
@@ -96,58 +96,24 @@ def get_historical_price(asset_id: int, target_date: date) -> Optional[float]:
     
     # Buscar preço histórico do CoinGecko usando endpoint de histórico por data específica
     try:
-        import requests
-        import time
-        
-        # Note: Global rate limiting is already handled in services/coingecko.py
-        # No need for sleep here - it's handled centrally by the API wrapper
-        
+        # Centralized rate limiting via services.coingecko helpers
         days_ago = (date.today() - target_date).days
-        
         if days_ago < 0:
             logger.warning(f"Data futura solicitada: {target_date}")
             return None
-        
-        # Para hoje, usar endpoint de preço atual
+
         if days_ago == 0:
-            url = f"{BASE_URL}/simple/price"
-            params = {"ids": coingecko_id, "vs_currencies": "eur"}
-            
-            resp = requests.get(url, params=params, timeout=10)
-            if resp.ok:
-                data = resp.json()
-                price = data.get(coingecko_id, {}).get("eur")
-                if price:
-                    closest_price = float(price)
-                else:
-                    logger.warning(f"Preço atual não disponível para {coingecko_id}")
-                    return None
-            else:
-                logger.warning(f"Erro ao buscar preço atual: {resp.status_code}")
+            price = get_current_price_by_id(coingecko_id, vs_currency="eur")
+            if price is None:
+                logger.warning(f"Preço atual não disponível para {coingecko_id}")
                 return None
+            closest_price = float(price)
         else:
-            # Para datas históricas, usar endpoint /coins/{id}/history
-            # Formato da data: DD-MM-YYYY
-            date_str = target_date.strftime("%d-%m-%Y")
-            url = f"{BASE_URL}/coins/{coingecko_id}/history"
-            params = {"date": date_str, "localization": "false"}
-            
-            resp = requests.get(url, params=params, timeout=15)
-            if resp.ok:
-                data = resp.json()
-                # market_data contém os preços por moeda
-                market_data = data.get("market_data", {})
-                current_price = market_data.get("current_price", {})
-                price = current_price.get("eur")
-                
-                if price:
-                    closest_price = float(price)
-                else:
-                    logger.warning(f"Preço histórico não disponível para {coingecko_id} em {date_str}")
-                    return None
-            else:
-                logger.warning(f"Erro ao buscar preço histórico: {resp.status_code}")
+            price = get_historical_price_by_id(coingecko_id, target_date, vs_currency="eur")
+            if price is None:
+                logger.warning(f"Preço histórico não disponível para {coingecko_id} em {target_date}")
                 return None
+            closest_price = float(price)
         
         if closest_price:
             # Guardar na BD para uso futuro
@@ -178,7 +144,7 @@ def get_historical_price(asset_id: int, target_date: date) -> Optional[float]:
     return None
 
 
-def get_historical_prices_bulk(asset_ids: List[int], target_date: date) -> Dict[int, float]:
+def get_historical_prices_bulk(asset_ids: List[int], target_date: date, allow_api_fallback: bool = True) -> Dict[int, float]:
     """Busca preços históricos para múltiplos ativos numa data.
     
     Args:
@@ -213,7 +179,7 @@ def get_historical_prices_bulk(asset_ids: List[int], target_date: date) -> Dict[
     
     # Para assets sem preço na BD, buscar do CoinGecko
     missing = [aid for aid in asset_ids if aid not in result]
-    if missing:
+    if missing and allow_api_fallback:
         logger.info(f"🌐 Buscando {len(missing)} preços em falta do CoinGecko para {target_date}...")
         
         # Rate limiting is handled globally in coingecko.py and get_historical_price
@@ -225,7 +191,7 @@ def get_historical_prices_bulk(asset_ids: List[int], target_date: date) -> Dict[
     return result
 
 
-def get_historical_prices_by_symbol(symbols: List[str], target_date: date) -> Dict[str, float]:
+def get_historical_prices_by_symbol(symbols: List[str], target_date: date, allow_api_fallback: bool = True) -> Dict[str, float]:
     """Busca preços históricos para múltiplos símbolos numa data.
     
     Args:
@@ -274,7 +240,7 @@ def get_historical_prices_by_symbol(symbols: List[str], target_date: date) -> Di
     asset_ids = list(symbol_to_id.values())
     
     # Buscar preços históricos por asset_id (com rate limiting)
-    prices_by_id = get_historical_prices_bulk(asset_ids, target_date)
+    prices_by_id = get_historical_prices_bulk(asset_ids, target_date, allow_api_fallback=allow_api_fallback)
     
     # Mapear de volta para símbolos e guardar no cache
     for symbol, asset_id in symbol_to_id.items():

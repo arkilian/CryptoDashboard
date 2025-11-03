@@ -12,17 +12,36 @@ class CardanoScanAPI:
     
     BASE_URL = "https://api.cardanoscan.io/api/v1"
     
-    # Mapa de tokens conhecidos e suas casas decimais
+    # Mapa de tokens conhecidos e suas casas decimais (por nome)
     TOKEN_DECIMALS = {
         "DjedMicroUSD": 6,  # DJED tem 6 decimais
         "DJED": 6,
         "SHEN": 6,
         "USDC": 6,
         "USDT": 6,
+        "USDM": 6,
+        "iUSD": 6,
+        "IUSD": 6,
         "AGIX": 8,
         "WMT": 6,
         "MIN": 6,
         "SUNDAE": 6,
+        "MELD": 6,
+        "INDY": 6,
+        "HOSKY": 0,
+    }
+
+    # Mapa de casas decimais por policyId (pode usar prefixos para corresponder)
+    TOKEN_DECIMALS_BY_POLICY = {
+        # Exemplo: policyId (ou prefixo) -> decimais
+        # "<policyIdCompletoOuPrefixo>": 6,
+        "6df63e2fdde8": 6,  # Prefixo citado pelo utilizador
+        "6df63e2fdde8b2c3b3396265b0cc824aa4fb999396b1c154280f6b0c": 6,  # PolicyId completo
+    }
+    
+    # Mapa de nomes por policyId (para tokens sem assetName ou metadata incompleta)
+    TOKEN_NAMES_BY_POLICY = {
+        "6df63e2fdde8b2c3b3396265b0cc824aa4fb999396b1c154280f6b0c": "FREN",  # Nome conhecido
     }
     
     def __init__(self, api_key: str):
@@ -34,6 +53,129 @@ class CardanoScanAPI:
         """
         self.api_key = api_key
         self.headers = {"apiKey": api_key}
+        # Cache de metadados de assets: chave "policyId.assetNameHex" -> dict
+        self._asset_meta_cache: Dict[str, Dict] = {}
+
+    def _asset_cache_key(self, policy_id: Optional[str], asset_name_hex: Optional[str]) -> Optional[str]:
+        if not policy_id:
+            return None
+        return f"{policy_id}.{asset_name_hex or ''}"
+
+    def _try_fetch(self, endpoint: str, params: Dict) -> Optional[Dict]:
+        """
+        Faz uma chamada GET simples e retorna JSON como dict se sucesso.
+        """
+        url = f"{self.BASE_URL}{endpoint}"
+        try:
+            resp = requests.get(url, headers=self.headers, params=params, timeout=10)
+            if resp.status_code != 200:
+                return None
+            data = resp.json()
+            # Alguns endpoints podem devolver lista
+            if isinstance(data, list):
+                return data[0] if data else None
+            return data
+        except Exception:
+            return None
+
+    def _decode_hex_ascii(self, s: str) -> Optional[str]:
+        """Decodifica string hex para ASCII, com tratamento robusto."""
+        try:
+            if not s:
+                return None
+            # Aceitar strings hex (par ou ímpar); tentar com padding se necessário
+            if all(c in '0123456789abcdefABCDEF' for c in s):
+                candidates = [s]
+                if len(s) % 2 != 0:
+                    candidates.append('0' + s)
+                for hx in candidates:
+                    try:
+                        decoded = bytes.fromhex(hx).decode('utf-8', errors='ignore').strip()
+                        # Filtrar apenas imprimíveis
+                        printable = ''.join(ch for ch in decoded if ch.isprintable())
+                        printable = printable.strip()
+                        if printable and len(printable) > 0:
+                            return printable
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+        return None
+
+    def _extract_name_from_metadata(self, meta: Dict, fallback_hex_name: Optional[str]) -> Optional[str]:
+        # Tentativas diretas
+        for key in ("name", "tokenName", "assetNameAscii", "ticker", "symbol", "displayName"):
+            val = meta.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+        # Nested comuns
+        for parent in ("onchainMetadata", "metadata", "meta"):
+            inner = meta.get(parent)
+            if isinstance(inner, dict):
+                for key in ("name", "tokenName", "ticker", "symbol", "displayName"):
+                    val = inner.get(key)
+                    if isinstance(val, str) and val.strip():
+                        return val.strip()
+        # Tentar decodificar assetName em hex
+        hex_name = meta.get("assetName") or fallback_hex_name
+        if isinstance(hex_name, str):
+            decoded = self._decode_hex_ascii(hex_name)
+            if decoded:
+                return decoded
+        return None
+
+    def _extract_decimals_from_metadata(self, meta: Dict) -> Optional[int]:
+        # Padrões comuns
+        for key in ("decimals", "decimalPlaces", "tokenDecimals", "numberOfDecimals"):
+            val = meta.get(key)
+            try:
+                if val is not None:
+                    return int(val)
+            except Exception:
+                pass
+        # Nested
+        for parent in ("onchainMetadata", "metadata", "meta"):
+            inner = meta.get(parent)
+            if isinstance(inner, dict):
+                for key in ("decimals", "decimalPlaces"):
+                    val = inner.get(key)
+                    try:
+                        if val is not None:
+                            return int(val)
+                    except Exception:
+                        pass
+        return None
+
+    def get_asset_metadata(self, policy_id: Optional[str], asset_name_hex: Optional[str]) -> Optional[Dict]:
+        """
+        Consulta metadados do token no CardanoScan e memoriza o resultado.
+        """
+        cache_key = self._asset_cache_key(policy_id, asset_name_hex)
+        if cache_key and cache_key in self._asset_meta_cache:
+            return self._asset_meta_cache[cache_key]
+
+        if not policy_id:
+            return None
+        params = {"policyId": policy_id}
+        if asset_name_hex is not None:
+            params["assetName"] = asset_name_hex
+
+        # Tentar alguns endpoints conhecidos do CardanoScan
+        meta = self._try_fetch("/token/info", params) or self._try_fetch("/token/metadata", params)
+        if not meta:
+            return None
+
+        # Enriquecer com name/decimals resolvidos
+        resolved_name = self._extract_name_from_metadata(meta, asset_name_hex)
+        resolved_decimals = self._extract_decimals_from_metadata(meta)
+        if resolved_name is not None:
+            meta["resolved_name"] = resolved_name
+        if resolved_decimals is not None:
+            meta["resolved_decimals"] = resolved_decimals
+
+        if cache_key:
+            self._asset_meta_cache[cache_key] = meta
+        return meta
     
     def _convert_to_hex(self, address_bech32: str) -> str:
         """
@@ -211,34 +353,88 @@ class CardanoScanAPI:
         Returns:
             Nome do token
         """
-        name = token.get("name") or token.get("assetName", "")
+        # Override por policyId (para tokens sem assetName ou metadata)
+        policy_id = token.get("policyId") or token.get("policy")
+        if policy_id:
+            # Correspondência exata
+            if policy_id in self.TOKEN_NAMES_BY_POLICY:
+                return self.TOKEN_NAMES_BY_POLICY[policy_id]
+            # Correspondência por prefixo
+            for key, name in self.TOKEN_NAMES_BY_POLICY.items():
+                if policy_id.lower().startswith(key.lower()):
+                    return name
+        
+        # Tentar metadados do explorer
+        asset_hex = token.get("assetName") or token.get("asset_name") or token.get("name")
+        meta = self.get_asset_metadata(policy_id, asset_hex)
+        if meta and isinstance(meta, dict):
+            nm = meta.get("resolved_name")
+            if isinstance(nm, str) and nm.strip():
+                return nm
+
+        # Candidatos a nome direto (não-hex)
+        candidates = [
+            token.get("ticker"), token.get("symbol"), token.get("tokenName"),
+            token.get("name"), token.get("assetName"), token.get("asset_name"),
+        ]
+        # Primeiro: se algum for string não-hex com conteúdo, usar
+        for cand in candidates:
+            if isinstance(cand, str) and cand.strip():
+                s = cand.strip()
+                # Se não parecer hex, usar diretamente
+                if not all(c in '0123456789abcdefABCDEF' for c in s):
+                    return s
+        
+        # Depois: tentar decodificar hex
+        name = token.get("name") or token.get("assetName") or token.get("asset_name") or ""
         if name:
-            # Tentar decodificar hex para string legível
-            try:
-                if len(name) > 10 and all(c in '0123456789abcdefABCDEF' for c in name):
-                    decoded = bytes.fromhex(name).decode('utf-8', errors='ignore')
-                    if decoded.isprintable():
-                        return decoded
-            except:
-                pass
+            decoded = self._decode_hex_ascii(name)
+            if decoded:
+                return decoded
+            # Fallback: usar o hex como está
             return name
         
         policy = token.get("policyId", "")[:12]
         return f"Token {policy}..."
     
-    def format_token_amount(self, amount: int, token_name: str) -> float:
+    def _resolve_decimals(self, policy_id: Optional[str], token_name: Optional[str], asset_name_hex: Optional[str] = None) -> int:
+        """
+        Resolve o número de casas decimais com base no policyId (com suporte a prefixo)
+        e/ou no nome do token.
+        """
+        # 1) Metadados do explorer, se disponíveis
+        meta = self.get_asset_metadata(policy_id, asset_name_hex)
+        if meta and isinstance(meta, dict):
+            rd = meta.get("resolved_decimals")
+            if isinstance(rd, int):
+                return rd
+        if policy_id:
+            pid = policy_id.lower()
+            # Correspondência exata
+            if pid in self.TOKEN_DECIMALS_BY_POLICY:
+                return self.TOKEN_DECIMALS_BY_POLICY[pid]
+            # Correspondência por prefixo
+            for key, dec in self.TOKEN_DECIMALS_BY_POLICY.items():
+                if pid.startswith(key.lower()):
+                    return dec
+        # Fallback por nome
+        if token_name:
+            return self.TOKEN_DECIMALS.get(token_name, 0)
+        return 0
+
+    def format_token_amount(self, amount: int, token_name: str, policy_id: Optional[str] = None, asset_name_hex: Optional[str] = None) -> float:
         """
         Formata quantidade de token baseado nas casas decimais conhecidas.
         
         Args:
             amount: Quantidade bruta do token
             token_name: Nome do token
+            policy_id: PolicyId do token (opcional)
             
         Returns:
             Quantidade formatada como float
         """
-        # Verificar se é um token conhecido
-        decimals = self.TOKEN_DECIMALS.get(token_name, 0)
+        decimals = self._resolve_decimals(policy_id, token_name, asset_name_hex)
         
         if decimals > 0:
             return amount / (10 ** decimals)
@@ -269,8 +465,8 @@ class CardanoScanAPI:
         # Calcular totais
         total_input_user = 0
         total_output_user = 0
-        tokens_received = {}
-        tokens_sent = {}
+        # Utilizamos um mapa detalhado por (policyId, assetName/name) para não perder metadados
+        token_balances = {}
         
         # Analisar inputs (de onde veio o ADA)
         for inp in inputs:
@@ -281,9 +477,13 @@ class CardanoScanAPI:
                 total_input_user += value
                 # Tokens enviados
                 for token in inp.get("tokens", []):
-                    token_name = self.get_token_name(token)
+                    policy_id = token.get("policyId", token.get("policy", ""))
+                    asset_name = token.get("assetName", token.get("name", ""))
+                    key = (policy_id, asset_name)
                     token_qty = int(token.get("value", token.get("quantity", token.get("amount", 0))))
-                    tokens_sent[token_name] = tokens_sent.get(token_name, 0) + token_qty
+                    token_balances[key] = token_balances.get(key, 0) - token_qty
+                    # Pré-carregar metadados em cache
+                    self.get_asset_metadata(policy_id, asset_name)
         
         # Analisar outputs (para onde foi o ADA)
         for out in outputs:
@@ -294,9 +494,13 @@ class CardanoScanAPI:
                 total_output_user += value
                 # Tokens recebidos
                 for token in out.get("tokens", []):
-                    token_name = self.get_token_name(token)
+                    policy_id = token.get("policyId", token.get("policy", ""))
+                    asset_name = token.get("assetName", token.get("name", ""))
+                    key = (policy_id, asset_name)
                     token_qty = int(token.get("value", token.get("quantity", token.get("amount", 0))))
-                    tokens_received[token_name] = tokens_received.get(token_name, 0) + token_qty
+                    token_balances[key] = token_balances.get(key, 0) + token_qty
+                    # Pré-carregar metadados em cache
+                    self.get_asset_metadata(policy_id, asset_name)
         
         # Calcular diferença líquida
         net_change = total_output_user - total_input_user
@@ -334,17 +538,25 @@ class CardanoScanAPI:
             icon = "ℹ️"
             description = "Outra"
         
-        # Calcular tokens líquidos (recebidos - enviados)
-        all_tokens = set(list(tokens_received.keys()) + list(tokens_sent.keys()))
+        # Calcular tokens líquidos com metadados
         net_tokens = {}
-        for token in all_tokens:
-            received = tokens_received.get(token, 0)
-            sent = tokens_sent.get(token, 0)
-            net = received - sent
-            if net != 0:
-                # Formatar quantidade baseado nas casas decimais
-                net_formatted = self.format_token_amount(net, token)
-                net_tokens[token] = net_formatted
+        net_tokens_detailed = []
+        for (policy_id, asset_name), net in token_balances.items():
+            if net == 0:
+                continue
+            token_info = {"policyId": policy_id, "assetName": asset_name}
+            display_name = self.get_token_name(token_info)
+            decimals = self._resolve_decimals(policy_id, display_name, asset_name)
+            formatted = net / (10 ** decimals) if decimals > 0 else float(net)
+            net_tokens[display_name] = formatted
+            net_tokens_detailed.append({
+                "name": display_name,
+                "policyId": policy_id,
+                "assetName": asset_name,
+                "amount": formatted,
+                "raw": net,
+                "decimals": decimals,
+            })
         
         return {
             "type": tx_type,
@@ -357,6 +569,5 @@ class CardanoScanAPI:
             "total_sent": total_input_user / 1_000_000,
             "total_received": total_output_user / 1_000_000,
             "net_tokens": net_tokens,
-            "tokens_sent": tokens_sent,
-            "tokens_received": tokens_received
+            "net_tokens_detailed": net_tokens_detailed,
         }

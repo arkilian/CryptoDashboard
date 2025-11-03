@@ -76,9 +76,18 @@ def show_balance_tab(api, address):
         token_list = []
         for token in tokens:
             token_name = api.get_token_name(token)
-            quantity = int(token.get("quantity", token.get("amount", 0)))
+            quantity_raw = int(token.get("quantity", token.get("amount", 0)))
+            policy_id = token.get("policyId", token.get("policy", None))
+            asset_hex = token.get("assetName", token.get("name", None))
+            qty_formatted = api.format_token_amount(quantity_raw, token_name, policy_id, asset_hex)
+            # Formatar com até 6 casas decimais e remover zeros à direita
+            qty_str = f"{qty_formatted:.6f}".rstrip('0').rstrip('.')
             policy_id = token.get("policyId", token.get("policy", "N/A"))
-            token_list.append({"Token": token_name, "Quantidade": f"{quantity:,}", "Policy ID": policy_id[:16] + "..." if len(policy_id) > 16 else policy_id})
+            token_list.append({
+                "Token": token_name,
+                "Quantidade": qty_str,
+                "Policy ID": policy_id[:16] + "..." if len(policy_id) > 16 else policy_id
+            })
         df_tokens = pd.DataFrame(token_list)
         st.dataframe(df_tokens, use_container_width=True, hide_index=True)
         csv = df_tokens.to_csv(index=False).encode('utf-8')
@@ -168,15 +177,43 @@ def show_transactions_tab(api, address):
                 
                 # Mostrar tokens se houver
                 token_html = ""
-                if analysis['net_tokens']:
-                    for token_name, qty in list(analysis['net_tokens'].items())[:1]:
+                net_tokens_detailed = analysis.get('net_tokens_detailed')
+                if net_tokens_detailed:
+                    # Ordenar tokens por nome para estabilidade
+                    items = sorted(net_tokens_detailed, key=lambda x: x['name'].lower())
+                    max_lines = 4
+                    lines = []
+                    for idx, item in enumerate(items):
+                        if idx >= max_lines:
+                            break
+                        qty = item.get('amount', 0)
                         if qty != 0:
                             token_sign = "+" if qty > 0 else ""
                             token_color = "#10b981" if qty > 0 else "#ef4444"
-                            # Formatar com até 6 casas decimais, removendo zeros à direita
                             qty_formatted = f"{qty:.6f}".rstrip('0').rstrip('.')
-                            token_html = f"<div style='color: {token_color}; font-size: 0.85rem; margin-top: 0.15rem;'>{token_sign}{qty_formatted} {token_name}</div>"
+                            token_name = item.get('name', 'Token')
+                            lines.append(f"<div style='color: {token_color}; font-size: 0.85rem; margin-top: 0.15rem;'>{token_sign}{qty_formatted} {token_name}</div>")
+                    if len(items) > max_lines:
+                        remaining = len(items) - max_lines
+                        lines.append(f"<div style='color: #9ca3af; font-size: 0.8rem; margin-top: 0.15rem;'>+{remaining} token(s) adicionais</div>")
+                    token_html = "".join(lines)
+                elif analysis.get('net_tokens'):
+                    # Fallback para estrutura anterior (dict simples)
+                    items = sorted(analysis['net_tokens'].items(), key=lambda x: x[0].lower())
+                    max_lines = 4
+                    lines = []
+                    for idx, (token_name, qty) in enumerate(items):
+                        if idx >= max_lines:
                             break
+                        if qty != 0:
+                            token_sign = "+" if qty > 0 else ""
+                            token_color = "#10b981" if qty > 0 else "#ef4444"
+                            qty_formatted = f"{qty:.6f}".rstrip('0').rstrip('.')
+                            lines.append(f"<div style='color: {token_color}; font-size: 0.85rem; margin-top: 0.15rem;'>{token_sign}{qty_formatted} {token_name}</div>")
+                    if len(items) > max_lines:
+                        remaining = len(items) - max_lines
+                        lines.append(f"<div style='color: #9ca3af; font-size: 0.8rem; margin-top: 0.15rem;'>+{remaining} token(s) adicionais</div>")
+                    token_html = "".join(lines)
                 
                 # Card com mais informações - construir em partes
                 fees_display = f"{analysis['fees_ada']:.4f}"
@@ -243,6 +280,8 @@ def show_info_tab(address):
         - 🔗 Base URL: api.cardanoscan.io
         - 📌 Versão: v1
         - 🔒 Protocolo: HTTPS
+        
+        **Metadados:** 🧠 Lookup automático (nomes e decimais) via CardanoScan
         
         **Status:** 🟢 Conectado
         """)

@@ -9,6 +9,7 @@ from pages.snapshots import show as show_snapshots_page
 from pages.documents import show as show_documents_page
 from pages.users import show as show_users_page
 from pages.transactions import show as show_transactions_page
+from pages.cardano import show as show_cardano_page
 from css.sidebar import get_sidebar_style
 from css.tables import get_tables_style
 from css.base import get_app_base_style
@@ -103,6 +104,7 @@ def main():
         "📊 Análise de Portfólio",
         #"📈 Portfólio",
         "💰 Cotações",
+        "🔷 Cardano",
         #"📸 Snapshots",
         "📄 Documentos",
     ]
@@ -138,6 +140,8 @@ def main():
     #    show_portfolio_page()
     elif menu == "💰 Cotações":
         show_prices_page()
+    elif menu == "🔷 Cardano":
+        show_cardano_page()
     #elif menu == "📸 Snapshots":
     #    show_snapshots_page()
     elif menu == "📄 Documentos":

@@ -115,7 +115,7 @@ Dashboard completo com três componentes principais:
 - Lista completa de ativos disponíveis para trading
 - Integração com sistema de transações
 
-### � Blockchain Cardano Explorer
+### 🔷 Blockchain Cardano Explorer
 **Nova funcionalidade**: Explorador completo da blockchain Cardano integrado ao dashboard.
 
 - **💰 Saldo e Tokens**:
@@ -170,7 +170,7 @@ Dashboard completo com três componentes principais:
 
 **Página de Configurações**: Interface completa para admins gerirem bancos, wallets e APIs sem editar código.
 
-### �📄 Gestão de Documentos (Admin)
+### 📄 Gestão de Documentos (Admin)
 - Upload e visualização de PDFs
 - Documentos típicos: regulamento, estratégia de investimento, roadmap
 - Acesso para todos os utilizadores

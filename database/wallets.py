@@ -4,7 +4,7 @@ Permite CRUD de wallets (Cardano, Ethereum, Bitcoin, etc.)
 """
 import psycopg2
 from typing import List, Dict, Optional, Tuple
-from database.connection import get_connection
+from database.connection import get_connection, return_connection
 
 def get_all_wallets(user_id: Optional[int] = None) -> List[Dict]:
     """
@@ -13,96 +13,89 @@ def get_all_wallets(user_id: Optional[int] = None) -> List[Dict]:
     """
     conn = get_connection()
     cur = conn.cursor()
-    
-    if user_id:
-        query = """
-            SELECT w.wallet_id, w.user_id, u.username, w.wallet_name, w.wallet_type,
-                   w.blockchain, w.address, w.stake_address, w.is_active, w.is_primary,
-                   w.balance_last_sync, w.notes, w.created_at, w.updated_at
-            FROM t_wallet w
-            JOIN t_users u ON w.user_id = u.user_id
-            WHERE w.user_id = %s
-            ORDER BY w.is_primary DESC, w.wallet_name
-        """
-        cur.execute(query, (user_id,))
-    else:
-        query = """
-            SELECT w.wallet_id, w.user_id, u.username, w.wallet_name, w.wallet_type,
-                   w.blockchain, w.address, w.stake_address, w.is_active, w.is_primary,
-                   w.balance_last_sync, w.notes, w.created_at, w.updated_at
-            FROM t_wallet w
-            JOIN t_users u ON w.user_id = u.user_id
-            ORDER BY u.username, w.is_primary DESC, w.wallet_name
-        """
-        cur.execute(query)
-    
-    columns = [desc[0] for desc in cur.description]
-    wallets = [dict(zip(columns, row)) for row in cur.fetchall()]
-    
-    cur.close()
-    conn.close()
-    
-    return wallets
-
+    try:
+        if user_id:
+            query = """
+                SELECT w.wallet_id, w.user_id, u.username, w.wallet_name, w.wallet_type,
+                       w.blockchain, w.address, w.stake_address, w.is_active, w.is_primary,
+                       w.balance_last_sync, w.notes, w.created_at, w.updated_at
+                FROM t_wallet w
+                JOIN t_users u ON w.user_id = u.user_id
+                WHERE w.user_id = %s
+                ORDER BY w.is_primary DESC, w.wallet_name
+            """
+            cur.execute(query, (user_id,))
+        else:
+            query = """
+                SELECT w.wallet_id, w.user_id, u.username, w.wallet_name, w.wallet_type,
+                       w.blockchain, w.address, w.stake_address, w.is_active, w.is_primary,
+                       w.balance_last_sync, w.notes, w.created_at, w.updated_at
+                FROM t_wallet w
+                JOIN t_users u ON w.user_id = u.user_id
+                ORDER BY u.username, w.is_primary DESC, w.wallet_name
+            """
+            cur.execute(query)
+        columns = [desc[0] for desc in cur.description]
+        wallets = [dict(zip(columns, row)) for row in cur.fetchall()]
+        return wallets
+    finally:
+        cur.close()
+        return_connection(conn)
 def get_active_wallets(user_id: Optional[int] = None) -> List[Dict]:
     """Retorna apenas wallets ativas."""
     conn = get_connection()
     cur = conn.cursor()
-    
-    if user_id:
-        query = """
-            SELECT wallet_id, wallet_name, wallet_type, blockchain, address, 
-                   stake_address, is_primary
-            FROM t_wallet
-            WHERE user_id = %s AND is_active = TRUE
-            ORDER BY is_primary DESC, wallet_name
-        """
-        cur.execute(query, (user_id,))
-    else:
-        query = """
-            SELECT w.wallet_id, w.user_id, u.username, w.wallet_name, w.wallet_type,
-                   w.blockchain, w.address, w.stake_address, w.is_primary
-            FROM t_wallet w
-            JOIN t_users u ON w.user_id = u.user_id
-            WHERE w.is_active = TRUE
-            ORDER BY u.username, w.is_primary DESC, w.wallet_name
-        """
-        cur.execute(query)
-    
-    columns = [desc[0] for desc in cur.description]
-    wallets = [dict(zip(columns, row)) for row in cur.fetchall()]
-    
-    cur.close()
-    conn.close()
-    
-    return wallets
+    try:
+        if user_id:
+            query = """
+                SELECT wallet_id, wallet_name, wallet_type, blockchain, address, 
+                       stake_address, is_primary
+                FROM t_wallet
+                WHERE user_id = %s AND is_active = TRUE
+                ORDER BY is_primary DESC, wallet_name
+            """
+            cur.execute(query, (user_id,))
+        else:
+            query = """
+                SELECT w.wallet_id, w.user_id, u.username, w.wallet_name, w.wallet_type,
+                       w.blockchain, w.address, w.stake_address, w.is_primary
+                FROM t_wallet w
+                JOIN t_users u ON w.user_id = u.user_id
+                WHERE w.is_active = TRUE
+                ORDER BY u.username, w.is_primary DESC, w.wallet_name
+            """
+            cur.execute(query)
+        columns = [desc[0] for desc in cur.description]
+        wallets = [dict(zip(columns, row)) for row in cur.fetchall()]
+        return wallets
+    finally:
+        cur.close()
+        return_connection(conn)
 
 def get_wallet_by_id(wallet_id: int) -> Optional[Dict]:
     """Retorna wallet específica pelo ID."""
     conn = get_connection()
     cur = conn.cursor()
-    
-    cur.execute("""
-        SELECT w.wallet_id, w.user_id, u.username, w.wallet_name, w.wallet_type,
-               w.blockchain, w.address, w.stake_address, w.is_active, w.is_primary,
-               w.balance_last_sync, w.notes
-        FROM t_wallet w
-        JOIN t_users u ON w.user_id = u.user_id
-        WHERE w.wallet_id = %s
-    """, (wallet_id,))
-    
-    row = cur.fetchone()
-    
-    if row:
-        columns = [desc[0] for desc in cur.description]
-        wallet = dict(zip(columns, row))
-    else:
-        wallet = None
-    
-    cur.close()
-    conn.close()
-    
-    return wallet
+    try:
+        cur.execute(
+            """
+            SELECT w.wallet_id, w.user_id, u.username, w.wallet_name, w.wallet_type,
+                   w.blockchain, w.address, w.stake_address, w.is_active, w.is_primary,
+                   w.balance_last_sync, w.notes
+            FROM t_wallet w
+            JOIN t_users u ON w.user_id = u.user_id
+            WHERE w.wallet_id = %s
+            """,
+            (wallet_id,),
+        )
+        row = cur.fetchone()
+        if row:
+            columns = [desc[0] for desc in cur.description]
+            return dict(zip(columns, row))
+        return None
+    finally:
+        cur.close()
+        return_connection(conn)
 
 def create_wallet(
     user_id: int,
@@ -126,7 +119,6 @@ def create_wallet(
     """
     conn = get_connection()
     cur = conn.cursor()
-    
     try:
         # Se is_primary=True, desmarcar outras wallets desse user
         if is_primary:
@@ -147,25 +139,20 @@ def create_wallet(
         
         wallet_id = cur.fetchone()[0]
         conn.commit()
-        
-        cur.close()
-        conn.close()
-        
         return True, f"Wallet '{wallet_name}' criada com sucesso (ID: {wallet_id})"
     
     except psycopg2.IntegrityError as e:
         conn.rollback()
-        cur.close()
-        conn.close()
         if "t_wallet_user_id_address_key" in str(e):
             return False, f"Endereço já cadastrado para este utilizador"
         return False, f"Erro de integridade: {str(e)}"
     
     except Exception as e:
         conn.rollback()
-        cur.close()
-        conn.close()
         return False, f"Erro ao criar wallet: {str(e)}"
+    finally:
+        cur.close()
+        return_connection(conn)
 
 def update_wallet(
     wallet_id: int,
@@ -187,7 +174,6 @@ def update_wallet(
     """
     conn = get_connection()
     cur = conn.cursor()
-    
     try:
         # Se is_primary=True, desmarcar outras wallets desse user
         if is_primary:
@@ -228,8 +214,6 @@ def update_wallet(
             params.append(notes)
         
         if not updates:
-            conn.close()
-            cur.close()
             return False, "Nenhum campo para atualizar"
         
         params.append(wallet_id)
@@ -240,56 +224,41 @@ def update_wallet(
         """
         
         cur.execute(query, params)
-        
         if cur.rowcount == 0:
             conn.rollback()
-            cur.close()
-            conn.close()
             return False, f"Wallet com ID {wallet_id} não encontrada"
-        
         conn.commit()
-        cur.close()
-        conn.close()
-        
         return True, f"Wallet atualizada com sucesso"
     
     except Exception as e:
         conn.rollback()
-        cur.close()
-        conn.close()
         return False, f"Erro ao atualizar wallet: {str(e)}"
+    finally:
+        cur.close()
+        return_connection(conn)
 
 def delete_wallet(wallet_id: int) -> Tuple[bool, str]:
     """Remove wallet."""
     conn = get_connection()
     cur = conn.cursor()
-    
     try:
         cur.execute("DELETE FROM t_wallet WHERE wallet_id = %s", (wallet_id,))
-        
         if cur.rowcount == 0:
             conn.rollback()
-            cur.close()
-            conn.close()
             return False, f"Wallet com ID {wallet_id} não encontrada"
-        
         conn.commit()
-        cur.close()
-        conn.close()
-        
         return True, f"Wallet removida com sucesso"
-    
     except Exception as e:
         conn.rollback()
-        cur.close()
-        conn.close()
         return False, f"Erro ao remover wallet: {str(e)}"
+    finally:
+        cur.close()
+        return_connection(conn)
 
 def set_primary_wallet(wallet_id: int) -> Tuple[bool, str]:
     """Define wallet como principal (desmarca outras do mesmo user)."""
     conn = get_connection()
     cur = conn.cursor()
-    
     try:
         # Desmarcar outras wallets do mesmo user
         cur.execute("""
@@ -307,27 +276,21 @@ def set_primary_wallet(wallet_id: int) -> Tuple[bool, str]:
         
         if cur.rowcount == 0:
             conn.rollback()
-            cur.close()
-            conn.close()
             return False, f"Wallet com ID {wallet_id} não encontrada"
-        
         conn.commit()
-        cur.close()
-        conn.close()
-        
         return True, f"Wallet definida como principal"
     
     except Exception as e:
         conn.rollback()
-        cur.close()
-        conn.close()
         return False, f"Erro ao definir wallet principal: {str(e)}"
+    finally:
+        cur.close()
+        return_connection(conn)
 
 def update_balance_sync(wallet_id: int) -> Tuple[bool, str]:
     """Atualiza timestamp da última sincronização de saldo."""
     conn = get_connection()
     cur = conn.cursor()
-    
     try:
         cur.execute("""
             UPDATE t_wallet
@@ -337,18 +300,13 @@ def update_balance_sync(wallet_id: int) -> Tuple[bool, str]:
         
         if cur.rowcount == 0:
             conn.rollback()
-            cur.close()
-            conn.close()
             return False, f"Wallet com ID {wallet_id} não encontrada"
-        
         conn.commit()
-        cur.close()
-        conn.close()
-        
         return True, f"Timestamp de sincronização atualizado"
     
     except Exception as e:
         conn.rollback()
-        cur.close()
-        conn.close()
         return False, f"Erro ao atualizar sincronização: {str(e)}"
+    finally:
+        cur.close()
+        return_connection(conn)

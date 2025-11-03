@@ -4,7 +4,7 @@ Permite CRUD de contas bancárias (IBAN, SWIFT, titular, etc.)
 """
 import psycopg2
 from typing import List, Dict, Optional, Tuple
-from database.connection import get_connection
+from database.connection import get_connection, return_connection
 
 def get_all_banks(user_id: Optional[int] = None) -> List[Dict]:
     """
@@ -13,98 +13,92 @@ def get_all_banks(user_id: Optional[int] = None) -> List[Dict]:
     """
     conn = get_connection()
     cur = conn.cursor()
-    
-    if user_id:
-        query = """
-            SELECT b.banco_id, b.user_id, u.username, b.bank_name, b.account_holder,
-                   b.iban, b.swift_bic, b.account_number, b.currency, b.country,
-                   b.branch, b.account_type, b.is_active, b.is_primary,
-                   b.notes, b.created_at, b.updated_at
-            FROM t_banco b
-            JOIN t_users u ON b.user_id = u.user_id
-            WHERE b.user_id = %s
-            ORDER BY b.is_primary DESC, b.bank_name
-        """
-        cur.execute(query, (user_id,))
-    else:
-        query = """
-            SELECT b.banco_id, b.user_id, u.username, b.bank_name, b.account_holder,
-                   b.iban, b.swift_bic, b.account_number, b.currency, b.country,
-                   b.branch, b.account_type, b.is_active, b.is_primary,
-                   b.notes, b.created_at, b.updated_at
-            FROM t_banco b
-            JOIN t_users u ON b.user_id = u.user_id
-            ORDER BY u.username, b.is_primary DESC, b.bank_name
-        """
-        cur.execute(query)
-    
-    columns = [desc[0] for desc in cur.description]
-    banks = [dict(zip(columns, row)) for row in cur.fetchall()]
-    
-    cur.close()
-    conn.close()
-    
-    return banks
+    try:
+        if user_id:
+            query = """
+                SELECT b.banco_id, b.user_id, u.username, b.bank_name, b.account_holder,
+                       b.iban, b.swift_bic, b.account_number, b.currency, b.country,
+                       b.branch, b.account_type, b.is_active, b.is_primary,
+                       b.notes, b.created_at, b.updated_at
+                FROM t_banco b
+                JOIN t_users u ON b.user_id = u.user_id
+                WHERE b.user_id = %s
+                ORDER BY b.is_primary DESC, b.bank_name
+            """
+            cur.execute(query, (user_id,))
+        else:
+            query = """
+                SELECT b.banco_id, b.user_id, u.username, b.bank_name, b.account_holder,
+                       b.iban, b.swift_bic, b.account_number, b.currency, b.country,
+                       b.branch, b.account_type, b.is_active, b.is_primary,
+                       b.notes, b.created_at, b.updated_at
+                FROM t_banco b
+                JOIN t_users u ON b.user_id = u.user_id
+                ORDER BY u.username, b.is_primary DESC, b.bank_name
+            """
+            cur.execute(query)
+        columns = [desc[0] for desc in cur.description]
+        banks = [dict(zip(columns, row)) for row in cur.fetchall()]
+        return banks
+    finally:
+        cur.close()
+        return_connection(conn)
 
 def get_active_banks(user_id: Optional[int] = None) -> List[Dict]:
     """Retorna apenas contas ativas."""
     conn = get_connection()
     cur = conn.cursor()
-    
-    if user_id:
-        query = """
-            SELECT banco_id, bank_name, account_holder, iban, swift_bic, 
-                   currency, is_primary
-            FROM t_banco
-            WHERE user_id = %s AND is_active = TRUE
-            ORDER BY is_primary DESC, bank_name
-        """
-        cur.execute(query, (user_id,))
-    else:
-        query = """
-            SELECT b.banco_id, b.user_id, u.username, b.bank_name, b.account_holder,
-                   b.iban, b.swift_bic, b.currency, b.is_primary
-            FROM t_banco b
-            JOIN t_users u ON b.user_id = u.user_id
-            WHERE b.is_active = TRUE
-            ORDER BY u.username, b.is_primary DESC, b.bank_name
-        """
-        cur.execute(query)
-    
-    columns = [desc[0] for desc in cur.description]
-    banks = [dict(zip(columns, row)) for row in cur.fetchall()]
-    
-    cur.close()
-    conn.close()
-    
-    return banks
+    try:
+        if user_id:
+            query = """
+                SELECT banco_id, bank_name, account_holder, iban, swift_bic, 
+                       currency, is_primary
+                FROM t_banco
+                WHERE user_id = %s AND is_active = TRUE
+                ORDER BY is_primary DESC, bank_name
+            """
+            cur.execute(query, (user_id,))
+        else:
+            query = """
+                SELECT b.banco_id, b.user_id, u.username, b.bank_name, b.account_holder,
+                       b.iban, b.swift_bic, b.currency, b.is_primary
+                FROM t_banco b
+                JOIN t_users u ON b.user_id = u.user_id
+                WHERE b.is_active = TRUE
+                ORDER BY u.username, b.is_primary DESC, b.bank_name
+            """
+            cur.execute(query)
+        columns = [desc[0] for desc in cur.description]
+        banks = [dict(zip(columns, row)) for row in cur.fetchall()]
+        return banks
+    finally:
+        cur.close()
+        return_connection(conn)
 
 def get_bank_by_id(banco_id: int) -> Optional[Dict]:
     """Retorna conta bancária específica pelo ID."""
     conn = get_connection()
     cur = conn.cursor()
-    
-    cur.execute("""
-        SELECT b.banco_id, b.user_id, u.username, b.bank_name, b.account_holder,
-               b.iban, b.swift_bic, b.account_number, b.currency, b.country,
-               b.branch, b.account_type, b.is_active, b.is_primary, b.notes
-        FROM t_banco b
-        JOIN t_users u ON b.user_id = u.user_id
-        WHERE b.banco_id = %s
-    """, (banco_id,))
-    
-    row = cur.fetchone()
-    
-    if row:
-        columns = [desc[0] for desc in cur.description]
-        bank = dict(zip(columns, row))
-    else:
-        bank = None
-    
-    cur.close()
-    conn.close()
-    
-    return bank
+    try:
+        cur.execute(
+            """
+            SELECT b.banco_id, b.user_id, u.username, b.bank_name, b.account_holder,
+                   b.iban, b.swift_bic, b.account_number, b.currency, b.country,
+                   b.branch, b.account_type, b.is_active, b.is_primary, b.notes
+            FROM t_banco b
+            JOIN t_users u ON b.user_id = u.user_id
+            WHERE b.banco_id = %s
+            """,
+            (banco_id,),
+        )
+        row = cur.fetchone()
+        if row:
+            columns = [desc[0] for desc in cur.description]
+            return dict(zip(columns, row))
+        return None
+    finally:
+        cur.close()
+        return_connection(conn)
 
 def create_bank(
     user_id: int,
@@ -132,7 +126,6 @@ def create_bank(
     """
     conn = get_connection()
     cur = conn.cursor()
-    
     try:
         # Se is_primary=True, desmarcar outras contas desse user
         if is_primary:
@@ -153,23 +146,18 @@ def create_bank(
         
         banco_id = cur.fetchone()[0]
         conn.commit()
-        
-        cur.close()
-        conn.close()
-        
         return True, f"Conta '{bank_name}' criada com sucesso (ID: {banco_id})"
     
     except psycopg2.IntegrityError as e:
         conn.rollback()
-        cur.close()
-        conn.close()
         return False, f"Erro de integridade: {str(e)}"
     
     except Exception as e:
         conn.rollback()
-        cur.close()
-        conn.close()
         return False, f"Erro ao criar conta: {str(e)}"
+    finally:
+        cur.close()
+        return_connection(conn)
 
 def update_bank(
     banco_id: int,
@@ -195,7 +183,6 @@ def update_bank(
     """
     conn = get_connection()
     cur = conn.cursor()
-    
     try:
         # Se is_primary=True, desmarcar outras contas desse user
         if is_primary:
@@ -248,8 +235,6 @@ def update_bank(
             params.append(notes)
         
         if not updates:
-            conn.close()
-            cur.close()
             return False, "Nenhum campo para atualizar"
         
         params.append(banco_id)
@@ -260,56 +245,41 @@ def update_bank(
         """
         
         cur.execute(query, params)
-        
         if cur.rowcount == 0:
             conn.rollback()
-            cur.close()
-            conn.close()
             return False, f"Conta com ID {banco_id} não encontrada"
-        
         conn.commit()
-        cur.close()
-        conn.close()
-        
         return True, f"Conta atualizada com sucesso"
     
     except Exception as e:
         conn.rollback()
-        cur.close()
-        conn.close()
         return False, f"Erro ao atualizar conta: {str(e)}"
+    finally:
+        cur.close()
+        return_connection(conn)
 
 def delete_bank(banco_id: int) -> Tuple[bool, str]:
     """Remove conta bancária."""
     conn = get_connection()
     cur = conn.cursor()
-    
     try:
         cur.execute("DELETE FROM t_banco WHERE banco_id = %s", (banco_id,))
-        
         if cur.rowcount == 0:
             conn.rollback()
-            cur.close()
-            conn.close()
             return False, f"Conta com ID {banco_id} não encontrada"
-        
         conn.commit()
-        cur.close()
-        conn.close()
-        
         return True, f"Conta removida com sucesso"
-    
     except Exception as e:
         conn.rollback()
-        cur.close()
-        conn.close()
         return False, f"Erro ao remover conta: {str(e)}"
+    finally:
+        cur.close()
+        return_connection(conn)
 
 def set_primary_bank(banco_id: int) -> Tuple[bool, str]:
     """Define conta como principal (desmarca outras do mesmo user)."""
     conn = get_connection()
     cur = conn.cursor()
-    
     try:
         # Desmarcar outras contas do mesmo user
         cur.execute("""
@@ -327,21 +297,16 @@ def set_primary_bank(banco_id: int) -> Tuple[bool, str]:
         
         if cur.rowcount == 0:
             conn.rollback()
-            cur.close()
-            conn.close()
             return False, f"Conta com ID {banco_id} não encontrada"
-        
         conn.commit()
-        cur.close()
-        conn.close()
-        
         return True, f"Conta definida como principal"
     
     except Exception as e:
         conn.rollback()
-        cur.close()
-        conn.close()
         return False, f"Erro ao definir conta principal: {str(e)}"
+    finally:
+        cur.close()
+        return_connection(conn)
 
 def validate_iban(iban: str) -> bool:
     """

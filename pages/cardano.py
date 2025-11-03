@@ -40,12 +40,14 @@ def show():
     if not address or not address.startswith("addr1"):
         st.warning("⚠️ Por favor, insira um endereço Cardano válido (deve começar com 'addr1')")
         return
-    tab1, tab2, tab3 = st.tabs(["💰 Saldo e Tokens", "📜 Transações", "ℹ️ Informações"])
+    tab1, tab2, tab3, tab4 = st.tabs(["💰 Saldo e Tokens", "🎯 Staking", "📜 Transações", "ℹ️ Informações"])
     with tab1:
         show_balance_tab(api, address)
     with tab2:
-        show_transactions_tab(api, address)
+        show_staking_tab(api, address)
     with tab3:
+        show_transactions_tab(api, address)
+    with tab4:
         show_info_tab(address)
 
 def show_balance_tab(api, address):
@@ -92,6 +94,103 @@ def show_balance_tab(api, address):
         st.dataframe(df_tokens, use_container_width=True, hide_index=True)
         csv = df_tokens.to_csv(index=False).encode('utf-8')
         st.download_button("📥 Exportar Tokens (CSV)", csv, "cardano_tokens.csv", "text/csv", key='download-tokens')
+
+def show_staking_tab(api, address):
+    """Mostra informações de staking da wallet."""
+    with st.spinner("🔍 A consultar staking..."):
+        stake_data, error = api.get_stake_info(address)
+    
+    if error:
+        st.warning(f"⚠️ {error}")
+        st.info("💡 Este endereço pode não ter uma conta de staking registada ou não estar delegado a nenhuma pool.")
+        return
+    
+    if not stake_data:
+        st.info("ℹ️ Sem informações de staking disponíveis")
+        return
+    
+    # Verificar se está delegado
+    if stake_data['is_delegated']:
+        st.success("✅ Conta de Staking Ativa")
+        
+        st.markdown("### 🎯 Delegação Atual")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            pool_name = stake_data.get('pool_name', 'N/A')
+            pool_ticker = stake_data.get('pool_ticker', 'N/A')
+            if pool_ticker and pool_ticker != 'N/A':
+                st.metric("Pool", f"[{pool_ticker}] {pool_name}")
+            else:
+                st.metric("Pool", pool_name)
+        
+        with col2:
+            pool_id = stake_data.get('pool_id', '')
+            if pool_id:
+                pool_short = f"{pool_id[:8]}...{pool_id[-8:]}" if len(pool_id) > 20 else pool_id
+                st.metric("Pool ID", pool_short)
+                st.markdown(f"🔗 [Ver na PoolTool](https://pooltool.io/pool/{pool_id})")
+        
+        st.markdown("---")
+        st.markdown("### 💰 Recompensas")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric(
+                "Total Recompensas", 
+                f"{stake_data['rewards_ada']:,.6f} ₳",
+                help="Total de recompensas acumuladas desde o início"
+            )
+        
+        with col2:
+            st.metric(
+                "Já Retiradas", 
+                f"{stake_data['withdrawals_ada']:,.6f} ₳",
+                help="Recompensas já movidas para a carteira"
+            )
+        
+        with col3:
+            available = stake_data['available_rewards_ada']
+            st.metric(
+                "Disponíveis", 
+                f"{available:,.6f} ₳",
+                help="Recompensas disponíveis para retirar",
+                delta=f"{'🟢 Disponível' if available > 0 else '—'}"
+            )
+        
+        st.markdown("---")
+        st.markdown("### 📊 Stake Controlado")
+        
+        controlled = stake_data['controlled_stake_ada']
+        st.metric(
+            "ADA em Stake",
+            f"{controlled:,.2f} ₳",
+            help="Quantidade de ADA delegada à pool"
+        )
+        
+        # Stake address
+        stake_addr = stake_data.get('stake_address', '')
+        if stake_addr:
+            st.markdown("---")
+            st.markdown("### 🔑 Stake Address")
+            st.code(stake_addr, language="text")
+    
+    else:
+        st.info("ℹ️ Esta wallet não está atualmente delegada a nenhuma pool de staking")
+        st.markdown("""
+        **Como começar a fazer staking:**
+        1. Abre a tua wallet (Daedalus, Yoroi, etc.)
+        2. Procura a secção de "Staking" ou "Delegação"
+        3. Escolhe uma pool de staking
+        4. Delega o teu ADA (requer uma pequena taxa de ~2 ADA + transaction fee na primeira vez)
+        
+        **Benefícios do staking:**
+        - 📈 Ganhas recompensas (~3-5% APY)
+        - 🔒 O teu ADA permanece na tua wallet
+        - 🚀 Sem período de lock-up
+        - 🎯 Ajudas a descentralizar a rede
+        """)
 
 def show_transactions_tab(api, address):
     st.markdown("### 📜 Atividade")

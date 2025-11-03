@@ -317,6 +317,61 @@ class CardanoScanAPI:
         except Exception as e:
             return None, f"Erro inesperado: {str(e)}"
     
+    def get_stake_info(self, address: str) -> Tuple[Optional[Dict], Optional[str]]:
+        """
+        Obtém informações de staking de um endereço Cardano.
+        
+        Args:
+            address: Endereço Cardano (bech32 format)
+            
+        Returns:
+            Tupla (dados, mensagem_erro)
+        """
+        url = f"{self.BASE_URL}/account/info"
+        params = {"address": address}
+        
+        try:
+            response = requests.get(url, headers=self.headers, params=params, timeout=10)
+            
+            if response.status_code == 404:
+                return None, "Conta de staking não encontrada ou não registada"
+            
+            if response.status_code != 200:
+                return None, f"Erro HTTP {response.status_code}: {response.text}"
+            
+            data = response.json()
+            
+            # Processar dados de staking
+            stake_address = data.get("stakeAddress", "")
+            pool_id = data.get("poolId", "")
+            delegated = data.get("delegated", False)
+            rewards = int(data.get("rewards", 0) or 0)
+            withdrawals = int(data.get("withdrawals", 0) or 0)
+            
+            result = {
+                "stake_address": stake_address,
+                "pool_id": pool_id,
+                "pool_name": data.get("poolName", ""),
+                "pool_ticker": data.get("poolTicker", ""),
+                "is_delegated": delegated,
+                "rewards_lovelace": rewards,
+                "rewards_ada": rewards / 1_000_000,
+                "withdrawals_lovelace": withdrawals,
+                "withdrawals_ada": withdrawals / 1_000_000,
+                "available_rewards_ada": (rewards - withdrawals) / 1_000_000,
+                "controlled_stake_lovelace": int(data.get("controlledStake", 0) or 0),
+                "controlled_stake_ada": int(data.get("controlledStake", 0) or 0) / 1_000_000,
+            }
+            
+            return result, None
+            
+        except requests.exceptions.Timeout:
+            return None, "Timeout ao consultar informações de staking"
+        except requests.exceptions.RequestException as e:
+            return None, f"Erro de conexão: {str(e)}"
+        except Exception as e:
+            return None, f"Erro inesperado: {str(e)}"
+    
     def get_token_name(self, token: Dict) -> str:
         """
         Extrai nome do token de forma amigável.

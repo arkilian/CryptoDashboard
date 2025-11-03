@@ -165,29 +165,10 @@ def show_transactions_tab(api, address):
                             token_html = f"<div style='color: {token_color}; font-size: 0.85rem; margin-top: 0.15rem;'>{token_sign}{qty:.1f} {token_name}</div>"
                             break
                 
-                # Card com mais informações
-                card_html = f'''<div style="background: rgba(30, 41, 59, 0.4); border-radius: 0.75rem; padding: 1rem; margin-bottom: 0.5rem;">
-                    <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 0.75rem;">
-                        <div style="width: 40px; height: 40px; border-radius: 50%; background: rgba(55, 65, 81, 0.8); display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex-shrink: 0;">{icon}</div>
-                        <div style="flex: 1; min-width: 0;">
-                            <div style="font-size: 1rem; font-weight: 600; color: #f3f4f6; margin-bottom: 0.15rem;">{tipo_display}</div>
-                            {subtipo}
-                            <div style="color: #9ca3af; font-size: 0.8rem;">Taxa: {analysis["fees_ada"]:.4f} ₳</div>
-                            {token_html}
-                        </div>
-                        <div style="text-align: right; flex-shrink: 0;">
-                            <div style="font-size: 1.1rem; font-weight: 700; color: {amount_color};">{amount_str} ₳</div>
-                        </div>
-                    </div>
-                    <div style="border-top: 1px solid rgba(75, 85, 99, 0.3); padding-top: 0.5rem; display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem;">
-                        <div style="color: #6b7280;">
-                            <span style="font-family: monospace;">{hash_short}</span>
-                        </div>
-                        <div>
-                            <a href="{cardanoscan_link}" target="_blank" style="color: #3b82f6; text-decoration: none; margin-left: 1rem;">🔍 CardanoScan</a>
-                        </div>
-                    </div>
-                </div>'''
+                # Card com mais informações - construir em partes
+                fees_display = f"{analysis['fees_ada']:.4f}"
+                
+                card_html = f'<div style="background: rgba(30, 41, 59, 0.4); border-radius: 0.75rem; padding: 1rem; margin-bottom: 0.5rem;"><div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 0.75rem;"><div style="width: 40px; height: 40px; border-radius: 50%; background: rgba(55, 65, 81, 0.8); display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex-shrink: 0;">{icon}</div><div style="flex: 1; min-width: 0;"><div style="font-size: 1rem; font-weight: 600; color: #f3f4f6; margin-bottom: 0.15rem;">{tipo_display}</div>{subtipo}<div style="color: #9ca3af; font-size: 0.8rem;">Taxa: {fees_display} ₳</div>{token_html}</div><div style="text-align: right; flex-shrink: 0;"><div style="font-size: 1.1rem; font-weight: 700; color: {amount_color};">{amount_str} ₳</div></div></div><div style="border-top: 1px solid rgba(75, 85, 99, 0.3); padding-top: 0.5rem; display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem;"><div style="color: #6b7280;"><span style="font-family: monospace;">{hash_short}</span></div><div><a href="{cardanoscan_link}" target="_blank" style="color: #3b82f6; text-decoration: none; margin-left: 1rem;">🔍 CardanoScan</a></div></div></div>'
                 
                 st.markdown(card_html, unsafe_allow_html=True)
         

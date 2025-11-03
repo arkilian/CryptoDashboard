@@ -202,7 +202,7 @@ def show_transactions_tab(api, address):
     st.markdown("### 📜 Atividade")
     col1, col2 = st.columns([2, 1])
     with col1:
-        max_pages = st.slider("📄 Número de páginas a carregar", 1, 20, 5, help="Cada página contém ~20 transações")
+        max_pages = st.slider("📄 Número de páginas a carregar", 1, 20, 1, help="Cada página contém ~20 transações")
     with col2:
         st.markdown("<br>", unsafe_allow_html=True)
         load_button = st.button("📥 Carregar Transações", use_container_width=True, type="primary")
@@ -223,6 +223,9 @@ def show_transactions_tab(api, address):
         if not transactions:
             st.info("ℹ️ Nenhuma transação encontrada")
             return
+        
+        # Mostrar total carregado
+        st.caption(f"📊 {len(transactions)} transações carregadas (mostrando as 50 mais recentes)")
         
         # Agrupar por data
         from collections import defaultdict
@@ -246,8 +249,10 @@ def show_transactions_tab(api, address):
             txs = grouped[date_str]
             st.markdown(f"<div style='color: #6b7280; font-size: 0.9rem; margin: 1.5rem 0 0.75rem 0; font-weight: 500;'>{date_str}</div>", unsafe_allow_html=True)
             
-            # Inverter ordem das transações dentro do dia (mais recentes primeiro)
-            for tx in reversed(txs):
+            # Ordenar transações dentro do dia por timestamp (mais recentes primeiro)
+            txs_sorted = sorted(txs, key=lambda tx: tx.get('timestamp', 0), reverse=True)
+            
+            for tx in txs_sorted:
                 analysis = api.analyze_transaction(tx, address)
                 
                 # Definir icone e cor

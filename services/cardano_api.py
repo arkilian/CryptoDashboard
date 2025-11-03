@@ -273,21 +273,42 @@ class CardanoScanAPI:
                 return None, f"Erro HTTP {response.status_code}: {response.text}"
             
             data = response.json()
-            total_pages = min(data.get("count", 1), max_pages)
-            all_transactions.extend(data.get("transactions", []))
             
-            # Buscar páginas restantes
-            for page in range(2, total_pages + 1):
-                response = requests.get(
-                    url,
-                    headers=self.headers,
-                    params={"address": address_hex, "pageNo": page},
-                    timeout=10
-                )
-                
-                if response.status_code == 200:
-                    page_data = response.json().get("transactions", [])
-                    all_transactions.extend(page_data)
+            # Debug: verificar estrutura da resposta
+            # A API pode retornar: count (total de transações), pageCount, totalPages, etc
+            total_count = data.get("count", 0)  # Total de transações
+            page_count = data.get("pageCount", data.get("totalPages", 0))  # Total de páginas
+            
+            # Se page_count não existe, calcular assumindo 20 transações por página
+            if page_count == 0 and total_count > 0:
+                page_count = (total_count + 19) // 20  # Arredondar para cima
+            
+            # Limitar ao máximo de páginas solicitado
+            total_pages = min(page_count if page_count > 0 else 1, max_pages)
+            
+            # Não adicionar a primeira página ainda, vamos buscar de trás para frente
+            first_page_txs = data.get("transactions", [])
+            
+            # Buscar páginas de trás para frente (mais recentes primeiro)
+            # Se max_pages=5 e total=20, buscar páginas 20, 19, 18, 17, 16
+            start_page = max(1, page_count - max_pages + 1) if page_count > 0 else 1
+            
+            # Buscar da página mais recente até a start_page
+            for page in range(page_count, start_page - 1, -1):
+                if page == 1:
+                    # Usar dados já obtidos da primeira request
+                    all_transactions.extend(first_page_txs)
+                else:
+                    response = requests.get(
+                        url,
+                        headers=self.headers,
+                        params={"address": address_hex, "pageNo": page},
+                        timeout=10
+                    )
+                    
+                    if response.status_code == 200:
+                        page_data = response.json().get("transactions", [])
+                        all_transactions.extend(page_data)
             
             # Processar transações para formato amigável
             processed = []
@@ -307,6 +328,9 @@ class CardanoScanAPI:
                     "outputs": tx.get("outputs", []),
                     "metadata": tx.get("metadata", {}),
                 })
+            
+            # Ordenar transações por timestamp (mais recentes primeiro)
+            processed.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
             
             return processed, None
             

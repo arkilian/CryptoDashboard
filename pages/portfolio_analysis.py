@@ -1,12 +1,14 @@
-import streamlit as st
-import pandas as pd
-from datetime import date
 import time
+from datetime import date
+
+import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from database.connection import get_connection, return_connection, get_engine
+import streamlit as st
+
 from auth.session_manager import require_auth
 from css.charts import apply_theme
+from database.connection import get_connection, return_connection, get_engine
 from utils.tags import ensure_default_tags, get_all_tags, build_tags_where_clause
 
 # Cache TTL for reference data (in seconds)
@@ -70,7 +72,6 @@ def show():
             cache_key = "portfolio_analysis_users"
             cache_time_key = "portfolio_analysis_users_time"
             
-            import time
             current_time = time.time()
             
             # Check if cache is valid
@@ -123,7 +124,6 @@ def show():
         cache_key = "all_accounts"
         cache_time_key = "all_accounts_time"
         
-        import time
         current_time = time.time()
         
         # Check if cache is valid

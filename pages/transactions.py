@@ -3,15 +3,17 @@
 Esta página permite ao administrador registar todas as operações de trading
 realizadas na carteira do fundo (compras e vendas de criptomoedas).
 """
-import streamlit as st
-import pandas as pd
 import time
 from datetime import datetime
-from database.connection import get_engine
-from sqlalchemy import text
+
+import pandas as pd
 import requests
-from utils.tags import ensure_default_tags, get_all_tags, build_tags_where_clause, set_transaction_tags
+import streamlit as st
+from sqlalchemy import text
+
 from components.transaction_form_v2 import render_transaction_form
+from database.connection import get_engine
+from utils.tags import ensure_default_tags, get_all_tags, build_tags_where_clause, set_transaction_tags
 
 # Cache TTL for reference data (in seconds)
 CACHE_TTL_SHORT = 120  # 2 minutes for reference data

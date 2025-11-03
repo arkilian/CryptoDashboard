@@ -699,7 +699,7 @@ def show_banks_settings():
             col_btn1, col_btn2, col_btn3 = st.columns(3)
             
             with col_btn1:
-                if st.button("⭐ Definir Principal", use_container_width=True):
+                if st.button("⭐ Definir Principal", key=f"btn_bank_primary_{banco_id}", use_container_width=True):
                     success, msg = set_primary_bank(banco_id)
                     if success:
                         st.success(msg)
@@ -712,7 +712,7 @@ def show_banks_settings():
                     st.session_state['editing_bank'] = banco_id
             
             with col_btn3:
-                if st.button("🗑️ Remover", type="secondary", use_container_width=True):
+                if st.button("🗑️ Remover", key=f"btn_bank_delete_{banco_id}", type="secondary", use_container_width=True):
                     if st.session_state.get('confirm_delete_bank') == banco_id:
                         success, msg = delete_bank(banco_id)
                         if success:
@@ -869,7 +869,7 @@ def show_api_cardano_settings():
             col_btn1, col_btn2, col_btn3 = st.columns(3)
             
             with col_btn1:
-                if st.button("🔄 Ativar/Desativar", use_container_width=True):
+                if st.button("🔄 Ativar/Desativar", key=f"btn_api_toggle_{api_id}", use_container_width=True):
                     success, msg = toggle_api_status(api_id)
                     if success:
                         st.success(msg)
@@ -882,7 +882,7 @@ def show_api_cardano_settings():
                     st.session_state['editing_api'] = api_id
             
             with col_btn3:
-                if st.button("🗑️ Remover", type="secondary", use_container_width=True):
+                if st.button("🗑️ Remover", key=f"btn_api_delete_{api_id}", type="secondary", use_container_width=True):
                     if st.session_state.get('confirm_delete_api') == api_id:
                         success, msg = delete_api(api_id)
                         if success:
@@ -1086,7 +1086,7 @@ def show_wallets_settings():
             col_btn1, col_btn2, col_btn3 = st.columns(3)
             
             with col_btn1:
-                if st.button("⭐ Definir Principal", use_container_width=True):
+                if st.button("⭐ Definir Principal", key=f"btn_wallet_primary_{wallet_id}", use_container_width=True):
                     success, msg = set_primary_wallet(wallet_id)
                     if success:
                         st.success(msg)
@@ -1099,7 +1099,7 @@ def show_wallets_settings():
                     st.session_state['editing_wallet'] = wallet_id
             
             with col_btn3:
-                if st.button("🗑️ Remover", type="secondary", use_container_width=True):
+                if st.button("🗑️ Remover", key=f"btn_wallet_delete_{wallet_id}", type="secondary", use_container_width=True):
                     if st.session_state.get('confirm_delete_wallet') == wallet_id:
                         success, msg = delete_wallet(wallet_id)
                         if success:

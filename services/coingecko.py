@@ -43,6 +43,11 @@ def _get_coingecko_config() -> Optional[Dict]:
         if apis:
             config = apis[0]  # Use the first active config
             _coingecko_config_cache = (now, config)
+            # Log config info (sem expor API key completa)
+            has_key = bool(config.get('api_key'))
+            rate = config.get('rate_limit', 'N/A')
+            url = config.get('base_url', 'N/A')
+            logger.info(f"📋 CoinGecko config: API Key={'✓' if has_key else '✗'}, Rate={rate}/min, URL={url}")
             return config
     except Exception as e:
         logger.warning(f"Erro ao buscar config CoinGecko da DB: {e}")
@@ -100,19 +105,66 @@ def _get_rate_limit_delay() -> float:
 
 
 def _get_headers() -> Dict[str, str]:
-    """Build request headers, including Authorization if api_key is configured."""
+    """Build request headers, including Authorization if api_key is configured.
+    
+    CoinGecko has different authentication methods:
+    - Demo tier: API key goes as query parameter (x_cg_demo_api_key)
+    - Pro tier: API key goes as header (x-cg-pro-api-key)
+    
+    For Demo API, we return empty headers and add api_key to URL params instead.
+    """
     headers = {"Accept": "application/json"}
     config = _get_coingecko_config()
+    
     if config and config.get('api_key'):
-        headers["x-cg-pro-api-key"] = config['api_key']
+        api_key = config['api_key']
+        
+        # Pro API key goes in header
+        if not api_key.startswith('CG-'):
+            headers["x-cg-pro-api-key"] = api_key
+            logger.debug(f"🔑 Pro API Key configurada no header: {api_key[:8]}...")
+    
     return headers
 
 
-def _get_base_url() -> str:
-    """Get base URL from DB config or fallback to public API."""
+def _add_api_key_to_params(params: dict) -> dict:
+    """Add API key to query parameters if using Demo API.
+    
+    Demo API keys (starting with CG-) must be sent as query parameter.
+    """
     config = _get_coingecko_config()
-    if config and config.get('base_url'):
-        return config['base_url']
+    
+    if config and config.get('api_key'):
+        api_key = config['api_key']
+        
+        # Demo API key goes in URL params
+        if api_key.startswith('CG-'):
+            params['x_cg_demo_api_key'] = api_key
+            logger.debug(f"🔑 Demo API Key adicionada aos params: {api_key[:8]}...")
+    
+    return params
+
+
+def _get_base_url() -> str:
+    """Get base URL from DB config or fallback to public API.
+    
+    Note: CoinGecko Pro API uses https://pro-api.coingecko.com/api/v3
+          Free API uses https://api.coingecko.com/api/v3
+    """
+    config = _get_coingecko_config()
+    if config:
+        # Se tem API key configurada, verificar se URL base está correta
+        if config.get('api_key') and config.get('base_url'):
+            base_url = config['base_url']
+            # Se configuraram api_key mas ainda usam URL pública, avisar
+            if 'pro-api' not in base_url and config.get('api_key'):
+                logger.warning(
+                    "⚠️ API Key configurada mas base_url não é pro-api.coingecko.com. "
+                    "Para CoinGecko Pro, use: https://pro-api.coingecko.com/api/v3"
+                )
+            return base_url
+        elif config.get('base_url'):
+            return config['base_url']
     return BASE_URL
 
 
@@ -221,6 +273,9 @@ def get_price_by_symbol(symbols: List[str], vs_currency: str = "eur") -> Dict[st
         "ids": ",".join(ids),
         "vs_currencies": vs_currency,
     }
+    # Add API key to params if using Demo API
+    params = _add_api_key_to_params(params)
+    
     url = f"{_get_base_url()}/simple/price"
 
     # Retry on transient errors (e.g., 429) with exponential backoff
@@ -292,6 +347,12 @@ def _rate_limited_get(url: str, params: Optional[dict] = None, timeout: int = 15
     """
     global _last_api_call_time
     backoff = 3.0
+    
+    # Add API key to params if using Demo API
+    if params is None:
+        params = {}
+    params = _add_api_key_to_params(params)
+    
     for attempt in range(retries):
         try:
             # Enforce global min delay between calls (dynamic from DB config)
@@ -419,6 +480,9 @@ class CoinGeckoService:
 
         url = f"{_get_base_url()}/coins/{coin_id}/market_chart"
         params = {"vs_currency": vs_currency, "days": days}
+        # Add API key to params if using Demo API
+        params = _add_api_key_to_params(params)
+        
         retries = 3
         backoff = 1.0
         for attempt in range(retries):

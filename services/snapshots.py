@@ -14,6 +14,7 @@ from sqlalchemy import text
 from database.connection import get_engine
 from services.coingecko import CoinGeckoService, get_current_price_by_id, get_historical_price_by_id, resolve_coingecko_id_for_symbol
 import time
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,63 @@ BASE_URL = "https://api.coingecko.com/api/v3"
 
 # Cache global para evitar chamadas repetidas durante mesma execução
 _prices_session_cache = {}  # {(symbol, date): price}
+
+# Proteção contra rate limit abuse
+_coingecko_429_counter = 0
+_coingecko_429_threshold = 3  # Após 3 erros 429 consecutivos, desabilitar temporariamente
+_coingecko_disabled_until = None  # Timestamp de quando reabilitar
+
+
+def _is_coingecko_available() -> bool:
+    """Verifica se a API CoinGecko está disponível (não bloqueada por 429s repetidos)."""
+    global _coingecko_disabled_until, _coingecko_429_counter
+    
+    if _coingecko_disabled_until is None:
+        return True
+    
+    # Verificar se já passou o tempo de cooldown (5 minutos)
+    if datetime.now() >= _coingecko_disabled_until:
+        logger.info("✅ CoinGecko reabilitada após cooldown")
+        _coingecko_disabled_until = None
+        _coingecko_429_counter = 0
+        return True
+    
+    return False
+
+
+def _handle_coingecko_error(error: Exception):
+    """Regista erro da CoinGecko e atualiza contador de 429s."""
+    global _coingecko_429_counter, _coingecko_disabled_until
+    
+    # Verificar se é erro 429
+    is_429 = False
+    if isinstance(error, requests.exceptions.HTTPError):
+        if hasattr(error, 'response') and error.response is not None:
+            is_429 = error.response.status_code == 429
+    elif "429" in str(error) or "rate limit" in str(error).lower():
+        is_429 = True
+    
+    if is_429:
+        _coingecko_429_counter += 1
+        logger.warning(f"⚠️ CoinGecko 429 (rate limit) #{_coingecko_429_counter}/{_coingecko_429_threshold}")
+        
+        if _coingecko_429_counter >= _coingecko_429_threshold:
+            _coingecko_disabled_until = datetime.now() + timedelta(minutes=5)
+            logger.error(
+                f"❌ CoinGecko desabilitada temporariamente até {_coingecko_disabled_until.strftime('%H:%M:%S')} "
+                f"devido a {_coingecko_429_counter} erros 429 consecutivos"
+            )
+    else:
+        # Reset contador em caso de erro diferente
+        _coingecko_429_counter = 0
+
+
+def _reset_coingecko_429_counter():
+    """Reset contador após chamada bem-sucedida."""
+    global _coingecko_429_counter
+    if _coingecko_429_counter > 0:
+        logger.info("✅ CoinGecko respondeu com sucesso - reset contador 429")
+        _coingecko_429_counter = 0
 
 
 def get_historical_price(asset_id: int, target_date: date) -> Optional[float]:
@@ -94,6 +152,11 @@ def get_historical_price(asset_id: int, target_date: date) -> Optional[float]:
     
     coingecko_id = df_asset.iloc[0]['coingecko_id']
     
+    # Verificar se CoinGecko está disponível
+    if not _is_coingecko_available():
+        logger.warning(f"⏳ CoinGecko desabilitada - pulando preço para {coingecko_id} em {target_date}")
+        return None
+    
     # Buscar preço histórico do CoinGecko usando endpoint de histórico por data específica
     try:
         # Centralized rate limiting via services.coingecko helpers
@@ -114,6 +177,9 @@ def get_historical_price(asset_id: int, target_date: date) -> Optional[float]:
                 logger.warning(f"Preço histórico não disponível para {coingecko_id} em {target_date}")
                 return None
             closest_price = float(price)
+        
+        # Sucesso - reset contador de erros 429
+        _reset_coingecko_429_counter()
         
         if closest_price:
             # Guardar na BD para uso futuro
@@ -139,6 +205,7 @@ def get_historical_price(asset_id: int, target_date: date) -> Optional[float]:
             return float(closest_price)
         
     except Exception as e:
+        _handle_coingecko_error(e)
         logger.error(f"Erro ao buscar preço histórico do CoinGecko: {e}")
     
     return None

@@ -262,10 +262,15 @@ def show_settings_page():
                 if st.button("Guardar alterações", key="save_acct_cats"):
                     try:
                         with engine.begin() as conn:
-                            for _, row in edited.iterrows():
+                            # Optimized: Use executemany for bulk updates instead of iterrows()
+                            updates = [
+                                {"cat": (row.get("Categoria") or None), "id": int(row["account_id"])}
+                                for row in edited.to_dict('records')
+                            ]
+                            if updates:
                                 conn.execute(
                                     text("UPDATE t_exchange_accounts SET account_category = :cat WHERE account_id = :id"),
-                                    {"cat": (row.get("Categoria") or None), "id": int(row["account_id"])}
+                                    updates
                                 )
                         st.success("✅ Categorias de contas atualizadas!")
                         st.rerun()
@@ -492,10 +497,15 @@ def show_settings_page():
                 if st.button("Guardar alterações", key="btn_save_tags"):
                     try:
                         with engine.begin() as conn:
-                            for _, row in edited.iterrows():
+                            # Optimized: Use executemany for bulk updates instead of iterrows()
+                            updates = [
+                                {"l": row.get("Etiqueta") or row.get("Código"), "a": bool(row.get("Ativa")), "id": int(row["tag_id"])}
+                                for row in edited.to_dict('records')
+                            ]
+                            if updates:
                                 conn.execute(
                                     text("UPDATE t_tags SET tag_label = :l, active = :a WHERE tag_id = :id"),
-                                    {"l": row.get("Etiqueta") or row.get("Código"), "a": bool(row.get("Ativa")), "id": int(row["tag_id"])},
+                                    updates
                                 )
                         st.success("✅ Tags atualizadas!")
                         st.rerun()
@@ -504,9 +514,10 @@ def show_settings_page():
             with colB:
                 # Remoção segura: apenas se não houver uso na tabela de relação
                 # UI mais amigável: selecionar a tag por etiqueta/código
+                # Optimized: Use to_dict() instead of iterrows()
                 tag_options = [
                     (int(row["tag_id"]), f"{row['tag_id']} - {row['tag_label']} ({row['tag_code']})")
-                    for _, row in df_tags_edit.iterrows()
+                    for row in df_tags_edit.to_dict('records')
                 ]
                 if tag_options:
                     option_labels = [lbl for _, lbl in tag_options]
@@ -688,7 +699,7 @@ def show_banks_settings():
             col_btn1, col_btn2, col_btn3 = st.columns(3)
             
             with col_btn1:
-                if st.button("⭐ Definir Principal", use_container_width=True):
+                if st.button("⭐ Definir Principal", key=f"btn_bank_primary_{banco_id}", use_container_width=True):
                     success, msg = set_primary_bank(banco_id)
                     if success:
                         st.success(msg)
@@ -701,7 +712,7 @@ def show_banks_settings():
                     st.session_state['editing_bank'] = banco_id
             
             with col_btn3:
-                if st.button("🗑️ Remover", type="secondary", use_container_width=True):
+                if st.button("🗑️ Remover", key=f"btn_bank_delete_{banco_id}", type="secondary", use_container_width=True):
                     if st.session_state.get('confirm_delete_bank') == banco_id:
                         success, msg = delete_bank(banco_id)
                         if success:
@@ -858,7 +869,7 @@ def show_api_cardano_settings():
             col_btn1, col_btn2, col_btn3 = st.columns(3)
             
             with col_btn1:
-                if st.button("🔄 Ativar/Desativar", use_container_width=True):
+                if st.button("🔄 Ativar/Desativar", key=f"btn_api_toggle_{api_id}", use_container_width=True):
                     success, msg = toggle_api_status(api_id)
                     if success:
                         st.success(msg)
@@ -871,7 +882,7 @@ def show_api_cardano_settings():
                     st.session_state['editing_api'] = api_id
             
             with col_btn3:
-                if st.button("🗑️ Remover", type="secondary", use_container_width=True):
+                if st.button("🗑️ Remover", key=f"btn_api_delete_{api_id}", type="secondary", use_container_width=True):
                     if st.session_state.get('confirm_delete_api') == api_id:
                         success, msg = delete_api(api_id)
                         if success:
@@ -1075,7 +1086,7 @@ def show_wallets_settings():
             col_btn1, col_btn2, col_btn3 = st.columns(3)
             
             with col_btn1:
-                if st.button("⭐ Definir Principal", use_container_width=True):
+                if st.button("⭐ Definir Principal", key=f"btn_wallet_primary_{wallet_id}", use_container_width=True):
                     success, msg = set_primary_wallet(wallet_id)
                     if success:
                         st.success(msg)
@@ -1088,7 +1099,7 @@ def show_wallets_settings():
                     st.session_state['editing_wallet'] = wallet_id
             
             with col_btn3:
-                if st.button("🗑️ Remover", type="secondary", use_container_width=True):
+                if st.button("🗑️ Remover", key=f"btn_wallet_delete_{wallet_id}", type="secondary", use_container_width=True):
                     if st.session_state.get('confirm_delete_wallet') == wallet_id:
                         success, msg = delete_wallet(wallet_id)
                         if success:

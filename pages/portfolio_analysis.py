@@ -1,12 +1,19 @@
-import streamlit as st
-import pandas as pd
+import time
 from datetime import date
+
+import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from database.connection import get_connection, return_connection, get_engine
+import streamlit as st
+
 from auth.session_manager import require_auth
 from css.charts import apply_theme
+from database.connection import get_connection, return_connection, get_engine
 from utils.tags import ensure_default_tags, get_all_tags, build_tags_where_clause
+
+# Cache TTL for reference data (in seconds)
+CACHE_TTL_SHORT = 120  # 2 minutes for frequently changing data
+CACHE_TTL_LONG = 300   # 5 minutes for relatively static data
 
 
 def _calculate_holdings_vectorized(df_tx):
@@ -65,13 +72,12 @@ def show():
             cache_key = "portfolio_analysis_users"
             cache_time_key = "portfolio_analysis_users_time"
             
-            import time
             current_time = time.time()
             
-            # Check if cache is valid (30 seconds TTL)
+            # Check if cache is valid
             if (cache_key in st.session_state and 
                 cache_time_key in st.session_state and
-                current_time - st.session_state[cache_time_key] < 30):
+                current_time - st.session_state[cache_time_key] < CACHE_TTL_SHORT):
                 df_users = st.session_state[cache_key]
             else:
                 df_users = pd.read_sql(
@@ -113,17 +119,34 @@ def show():
         st.markdown("---")
         st.markdown("#### Filtros de Origem (Contas) e Estratégia (Tags)")
         colc1, colc2, colc3 = st.columns([2, 2, 1])
-        # Carregar contas
-        df_all_accounts = pd.read_sql(
-            "SELECT ea.account_id, e.name AS exchange, ea.name AS account, COALESCE(ea.account_category,'') AS category FROM t_exchange_accounts ea JOIN t_exchanges e ON ea.exchange_id = e.exchange_id ORDER BY e.name, ea.name",
-            engine
-        )
+        
+        # Carregar contas (with caching)
+        cache_key = "all_accounts"
+        cache_time_key = "all_accounts_time"
+        
+        current_time = time.time()
+        
+        # Check if cache is valid
+        if (cache_key in st.session_state and 
+            cache_time_key in st.session_state and
+            current_time - st.session_state[cache_time_key] < CACHE_TTL_SHORT):
+            df_all_accounts = st.session_state[cache_key]
+        else:
+            df_all_accounts = pd.read_sql(
+                "SELECT ea.account_id, e.name AS exchange, ea.name AS account, COALESCE(ea.account_category,'') AS category FROM t_exchange_accounts ea JOIN t_exchanges e ON ea.exchange_id = e.exchange_id ORDER BY e.name, ea.name",
+                engine
+            )
+            st.session_state[cache_key] = df_all_accounts
+            st.session_state[cache_time_key] = current_time
         with colc1:
-            account_filter_options = [f"{row['exchange']} - {row['account']}" for _, row in df_all_accounts.iterrows()]
+            # Optimized: Use vectorized string concatenation instead of iterrows()
+            account_filter_options = (df_all_accounts['exchange'] + ' - ' + df_all_accounts['account']).tolist()
             selected_accounts_labels = st.multiselect("Contas", options=account_filter_options, key="pa_accounts_filter")
             selected_account_ids = set()
             if selected_accounts_labels:
-                label_to_id = {f"{row['exchange']} - {row['account']}": int(row['account_id']) for _, row in df_all_accounts.iterrows()}
+                # Optimized: Create lookup dict using pandas to_dict() instead of iterrows()
+                df_all_accounts['label'] = df_all_accounts['exchange'] + ' - ' + df_all_accounts['account']
+                label_to_id = dict(zip(df_all_accounts['label'], df_all_accounts['account_id'].astype(int)))
                 selected_account_ids = {label_to_id[l] for l in selected_accounts_labels}
         with colc2:
             categories = sorted(list(set(df_all_accounts['category'].dropna().tolist() + [""])) )
@@ -317,8 +340,22 @@ def show():
                                 params=(end_date, end_date, end_date)
                             )
 
-                            # Mapear asset_id -> symbol
-                            df_assets_map = pd.read_sql("SELECT asset_id, symbol FROM t_assets", engine)
+                            # Mapear asset_id -> symbol (with caching)
+                            cache_key = "assets_mapping"
+                            cache_time_key = "assets_mapping_time"
+                            
+                            current_time = time.time()
+                            
+                            # Check if cache is valid
+                            if (cache_key in st.session_state and 
+                                cache_time_key in st.session_state and
+                                current_time - st.session_state[cache_time_key] < CACHE_TTL_LONG):
+                                df_assets_map = st.session_state[cache_key]
+                            else:
+                                df_assets_map = pd.read_sql("SELECT asset_id, symbol FROM t_assets", engine)
+                                st.session_state[cache_key] = df_assets_map
+                                st.session_state[cache_time_key] = current_time
+                            
                             df_deltas = df_deltas.merge(df_assets_map, on='asset_id', how='left')
                             
                             # Buscar todos os movimentos de capital até o período

@@ -99,9 +99,8 @@ def get_historical_price(asset_id: int, target_date: date) -> Optional[float]:
         import requests
         import time
         
-        # DELAY: Adicionar pausa para respeitar rate limit do CoinGecko (10-30 req/min na API gratuita)
-        # Usando 3s entre chamadas para evitar 429 (Too Many Requests)
-        time.sleep(3.0)
+        # Note: Global rate limiting is already handled in services/coingecko.py
+        # No need for sleep here - it's handled centrally by the API wrapper
         
         days_ago = (date.today() - target_date).days
         
@@ -212,13 +211,12 @@ def get_historical_prices_bulk(asset_ids: List[int], target_date: date) -> Dict[
     if result:
         logger.info(f"✅ Encontrados {len(result)}/{len(asset_ids)} preços na BD para {target_date}")
     
-    # Para assets sem preço na BD, buscar com rate limiting otimizado
+    # Para assets sem preço na BD, buscar do CoinGecko
     missing = [aid for aid in asset_ids if aid not in result]
     if missing:
         logger.info(f"🌐 Buscando {len(missing)} preços em falta do CoinGecko para {target_date}...")
         
-        # Note: get_historical_price already includes 0.5s sleep
-        # No additional sleep needed here to avoid double rate limiting
+        # Rate limiting is handled globally in coingecko.py and get_historical_price
         for aid in missing:
             price = get_historical_price(aid, target_date)  # Busca CoinGecko e guarda na BD
             if price:

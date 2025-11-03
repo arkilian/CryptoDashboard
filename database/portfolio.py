@@ -16,9 +16,10 @@ def insert_snapshot_and_fees(user_id, snapshot_date, df_assets):
         snapshot_id = cur.fetchone()[0]
 
         # Bulk insert assets using executemany for better performance
+        # Optimized: Use to_dict() instead of iterrows()
         asset_data = [
             (snapshot_id, row['asset_symbol'], row['quantity'], row['price'], row['valor_total'])
-            for _, row in df_assets.iterrows()
+            for row in df_assets.to_dict('records')
         ]
         cur.executemany("""
             INSERT INTO t_portfolio_holdings (snapshot_id, asset_symbol, quantity, price, valor_total)

@@ -1,0 +1,397 @@
+﻿import streamlit as st
+import pandas as pd
+from services.cardano_api import CardanoScanAPI
+from datetime import datetime
+from database.api_config import get_active_apis
+
+def show():
+    """Pagina principal do Cardano."""
+    
+    st.title("🔷 Cardano Blockchain Explorer")
+    st.markdown("Consulte informações de endereços Cardano em tempo real")
+    
+    # Buscar configurações da API na base de dados
+    apis = get_active_apis()
+    
+    if not apis:
+        st.error("🚫 Nenhuma API Cardano configurada.")
+        st.info("👉 Vá para **Configurações → APIs Cardano** para adicionar uma API.")
+        if st.button("⚙️ Ir para Configurações"):
+            st.switch_page("pages/settings.py")
+        return
+    
+    # Usar a primeira API ativa
+    api_config = apis[0]
+    api_key = api_config['api_key']
+    default_address = api_config.get('default_address')
+    
+    api = CardanoScanAPI(api_key)
+    
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        address = st.text_input(
+            "📍 Endereço Cardano (formato bech32)",
+            value=st.session_state.get("cardano_address", default_address or ""),
+            help="Insira um endereço Cardano válido começando com 'addr1'"
+        )
+    
+    with col2:
+        st.markdown("<br>", unsafe_allow_html=True)
+        refresh = st.button("🔄 Atualizar", use_container_width=True, type="primary")
+    
+    if address:
+        st.session_state["cardano_address"] = address
+    
+    if not address or not address.startswith("addr1"):
+        st.warning("⚠️ Por favor, insira um endereço Cardano válido (deve começar com 'addr1')")
+        return
+    
+    tab1, tab2, tab3, tab4 = st.tabs(["💰 Saldo e Tokens", "🎯 Staking", "📜 Transações", "ℹ️ Informações"])
+    with tab1:
+        show_balance_tab(api, address)
+    with tab2:
+        show_staking_tab(api, address)
+    with tab3:
+        show_transactions_tab(api, address)
+    with tab4:
+        show_info_tab(address)
+
+def show_balance_tab(api, address):
+    with st.spinner("🔍 A consultar saldo..."):
+        balance_data, error = api.get_balance(address)
+    if error:
+        st.error(f"❌ Erro ao consultar saldo: {error}")
+        return
+    if not balance_data:
+        st.info("ℹ️ Nenhum dado encontrado para este endereço")
+        return
+    st.markdown("### 💎 Saldo ADA")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Saldo em ADA", f"{balance_data['ada']:,.6f} ₳", help="1 ADA = 1.000.000 lovelace")
+    with col2:
+        st.metric("Saldo em Lovelace", f"{balance_data['lovelace']:,}", help="Menor unidade do ADA")
+    with col3:
+        ada_price = 0.35
+        value_eur = balance_data['ada'] * ada_price
+        st.metric("Valor Aprox. (EUR)", f"€{value_eur:,.2f}", help=f"Baseado em 1 ADA ≈ €{ada_price}")
+    st.markdown("---")
+    tokens = balance_data.get('tokens', [])
+    if not tokens:
+        st.info("ℹ️ Este endereço não possui tokens nativos")
+    else:
+        st.markdown(f"### 🪙 Tokens Nativos ({len(tokens)})")
+        token_list = []
+        for token in tokens:
+            token_name = api.get_token_name(token)
+            quantity_raw = int(token.get("quantity", token.get("amount", 0)))
+            policy_id = token.get("policyId", token.get("policy", None))
+            asset_hex = token.get("assetName", token.get("name", None))
+            qty_formatted = api.format_token_amount(quantity_raw, token_name, policy_id, asset_hex)
+            # Formatar com até 6 casas decimais e remover zeros à direita
+            qty_str = f"{qty_formatted:.6f}".rstrip('0').rstrip('.')
+            policy_id = token.get("policyId", token.get("policy", "N/A"))
+            token_list.append({
+                "Token": token_name,
+                "Quantidade": qty_str,
+                "Policy ID": policy_id[:16] + "..." if len(policy_id) > 16 else policy_id
+            })
+        df_tokens = pd.DataFrame(token_list)
+        st.dataframe(df_tokens, use_container_width=True, hide_index=True)
+        csv = df_tokens.to_csv(index=False).encode('utf-8')
+        st.download_button("📥 Exportar Tokens (CSV)", csv, "cardano_tokens.csv", "text/csv", key='download-tokens')
+
+def show_staking_tab(api, address):
+    """Mostra informações de staking da wallet."""
+    with st.spinner("🔍 A consultar staking..."):
+        stake_data, error = api.get_stake_info(address)
+    
+    if error:
+        st.warning(f"⚠️ {error}")
+        st.info("💡 Este endereço pode não ter uma conta de staking registada ou não estar delegado a nenhuma pool.")
+        return
+    
+    if not stake_data:
+        st.info("ℹ️ Sem informações de staking disponíveis")
+        return
+    
+    # Verificar se está delegado
+    if stake_data['is_delegated']:
+        st.success("✅ Conta de Staking Ativa")
+        
+        st.markdown("### 🎯 Delegação Atual")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            pool_name = stake_data.get('pool_name', 'N/A')
+            pool_ticker = stake_data.get('pool_ticker', 'N/A')
+            if pool_ticker and pool_ticker != 'N/A':
+                st.metric("Pool", f"[{pool_ticker}] {pool_name}")
+            else:
+                st.metric("Pool", pool_name)
+        
+        with col2:
+            pool_id = stake_data.get('pool_id', '')
+            if pool_id:
+                pool_short = f"{pool_id[:8]}...{pool_id[-8:]}" if len(pool_id) > 20 else pool_id
+                st.metric("Pool ID", pool_short)
+                st.markdown(f"🔗 [Ver na PoolTool](https://pooltool.io/pool/{pool_id})")
+        
+        st.markdown("---")
+        st.markdown("### 💰 Recompensas")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric(
+                "Total Recompensas", 
+                f"{stake_data['rewards_ada']:,.6f} ₳",
+                help="Total de recompensas acumuladas desde o início"
+            )
+        
+        with col2:
+            st.metric(
+                "Já Retiradas", 
+                f"{stake_data['withdrawals_ada']:,.6f} ₳",
+                help="Recompensas já movidas para a carteira"
+            )
+        
+        with col3:
+            available = stake_data['available_rewards_ada']
+            st.metric(
+                "Disponíveis", 
+                f"{available:,.6f} ₳",
+                help="Recompensas disponíveis para retirar",
+                delta=f"{'🟢 Disponível' if available > 0 else '—'}"
+            )
+        
+        st.markdown("---")
+        st.markdown("### 📊 Stake Controlado")
+        
+        controlled = stake_data['controlled_stake_ada']
+        st.metric(
+            "ADA em Stake",
+            f"{controlled:,.2f} ₳",
+            help="Quantidade de ADA delegada à pool"
+        )
+        
+        # Stake address
+        stake_addr = stake_data.get('stake_address', '')
+        if stake_addr:
+            st.markdown("---")
+            st.markdown("### 🔑 Stake Address")
+            st.code(stake_addr, language="text")
+    
+    else:
+        st.info("ℹ️ Esta wallet não está atualmente delegada a nenhuma pool de staking")
+        st.markdown("""
+        **Como começar a fazer staking:**
+        1. Abre a tua wallet (Daedalus, Yoroi, etc.)
+        2. Procura a secção de "Staking" ou "Delegação"
+        3. Escolhe uma pool de staking
+        4. Delega o teu ADA (requer uma pequena taxa de ~2 ADA + transaction fee na primeira vez)
+        
+        **Benefícios do staking:**
+        - 📈 Ganhas recompensas (~3-5% APY)
+        - 🔒 O teu ADA permanece na tua wallet
+        - 🚀 Sem período de lock-up
+        - 🎯 Ajudas a descentralizar a rede
+        """)
+
+def show_transactions_tab(api, address):
+    st.markdown("### 📜 Atividade")
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        max_pages = st.slider("📄 Número de páginas a carregar", 1, 20, 1, help="Cada página contém ~20 transações")
+    with col2:
+        st.markdown("<br>", unsafe_allow_html=True)
+        load_button = st.button("📥 Carregar Transações", use_container_width=True, type="primary")
+    
+    if load_button or "cardano_transactions" in st.session_state:
+        with st.spinner("Carregando..."):
+            if load_button:
+                transactions, error = api.get_transactions(address, max_pages)
+                st.session_state["cardano_transactions"] = transactions
+                st.session_state["cardano_transactions_error"] = error
+            else:
+                transactions = st.session_state.get("cardano_transactions")
+                error = st.session_state.get("cardano_transactions_error")
+        
+        if error:
+            st.error(f"❌ Erro ao carregar transações: {error}")
+            return
+        if not transactions:
+            st.info("ℹ️ Nenhuma transação encontrada")
+            return
+        
+        # Mostrar total carregado
+        st.caption(f"📊 {len(transactions)} transações carregadas (mostrando as 50 mais recentes)")
+        
+        # Agrupar por data
+        from collections import defaultdict
+        grouped = defaultdict(list)
+        for tx in transactions[:50]:
+            ts = tx['timestamp']
+            if isinstance(ts, str):
+                # Se for ISO format (2025-03-10T07:56:49.000Z)
+                if 'T' in ts:
+                    timestamp = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                else:
+                    ts = int(ts)
+                    timestamp = datetime.fromtimestamp(ts)
+            else:
+                timestamp = datetime.fromtimestamp(ts)
+            date_key = timestamp.strftime("%b %d, %Y")
+            grouped[date_key].append(tx)
+        
+        # Mostrar agrupado por data (ordem inversa - mais recentes primeiro)
+        for date_str in sorted(grouped.keys(), reverse=True, key=lambda x: datetime.strptime(x, "%b %d, %Y")):
+            txs = grouped[date_str]
+            st.markdown(f"<div style='color: #6b7280; font-size: 0.9rem; margin: 1.5rem 0 0.75rem 0; font-weight: 500;'>{date_str}</div>", unsafe_allow_html=True)
+            
+            # Ordenar transações dentro do dia por timestamp (mais recentes primeiro)
+            txs_sorted = sorted(txs, key=lambda tx: tx.get('timestamp', 0), reverse=True)
+            
+            for tx in txs_sorted:
+                analysis = api.analyze_transaction(tx, address)
+                
+                # Definir icone e cor
+                if analysis['type'] == 'sent':
+                    icon = "↗"
+                    color = "#ef4444"
+                    amount_color = "#ef4444"
+                    amount_str = f"-{abs(analysis['net_change_ada']):.1f}"
+                elif analysis['type'] == 'received':
+                    icon = "↙"
+                    color = "#10b981"
+                    amount_color = "#10b981"
+                    amount_str = f"{analysis['net_change_ada']:.1f}"
+                else:
+                    icon = "↔"
+                    color = "#06b6d4"
+                    amount_color = "#94a3b8"
+                    amount_str = f"{analysis['net_change_ada']:.1f}"
+                
+                # Linha de tipo (Enviado/Recebido/Contrato)
+                tipo_display = analysis['description'] if analysis['type'] == 'contract' else ("Enviado" if analysis['type'] == 'sent' else "Recebido")
+                subtipo = ""
+                if analysis['type'] == 'contract':
+                    subtipo = f"<div style='color: #9ca3af; font-size: 0.85rem;'>{tipo_display}</div>"
+                
+                # Hash da transação (primeiros 8 caracteres)
+                tx_hash = tx.get('hash', '')
+                hash_short = f"{tx_hash[:8]}...{tx_hash[-8:]}" if len(tx_hash) > 16 else tx_hash
+                
+                # Links para explorers
+                cardanoscan_link = f"https://cardanoscan.io/transaction/{tx_hash}"
+                
+                # Mostrar tokens se houver
+                token_html = ""
+                net_tokens_detailed = analysis.get('net_tokens_detailed')
+                if net_tokens_detailed:
+                    # Ordenar tokens por nome para estabilidade
+                    items = sorted(net_tokens_detailed, key=lambda x: x['name'].lower())
+                    max_lines = 4
+                    lines = []
+                    for idx, item in enumerate(items):
+                        if idx >= max_lines:
+                            break
+                        qty = item.get('amount', 0)
+                        if qty != 0:
+                            token_sign = "+" if qty > 0 else ""
+                            token_color = "#10b981" if qty > 0 else "#ef4444"
+                            qty_formatted = f"{qty:.6f}".rstrip('0').rstrip('.')
+                            token_name = item.get('name', 'Token')
+                            lines.append(f"<div style='color: {token_color}; font-size: 0.85rem; margin-top: 0.15rem;'>{token_sign}{qty_formatted} {token_name}</div>")
+                    if len(items) > max_lines:
+                        remaining = len(items) - max_lines
+                        lines.append(f"<div style='color: #9ca3af; font-size: 0.8rem; margin-top: 0.15rem;'>+{remaining} token(s) adicionais</div>")
+                    token_html = "".join(lines)
+                elif analysis.get('net_tokens'):
+                    # Fallback para estrutura anterior (dict simples)
+                    items = sorted(analysis['net_tokens'].items(), key=lambda x: x[0].lower())
+                    max_lines = 4
+                    lines = []
+                    for idx, (token_name, qty) in enumerate(items):
+                        if idx >= max_lines:
+                            break
+                        if qty != 0:
+                            token_sign = "+" if qty > 0 else ""
+                            token_color = "#10b981" if qty > 0 else "#ef4444"
+                            qty_formatted = f"{qty:.6f}".rstrip('0').rstrip('.')
+                            lines.append(f"<div style='color: {token_color}; font-size: 0.85rem; margin-top: 0.15rem;'>{token_sign}{qty_formatted} {token_name}</div>")
+                    if len(items) > max_lines:
+                        remaining = len(items) - max_lines
+                        lines.append(f"<div style='color: #9ca3af; font-size: 0.8rem; margin-top: 0.15rem;'>+{remaining} token(s) adicionais</div>")
+                    token_html = "".join(lines)
+                
+                # Card com mais informações - construir em partes
+                fees_display = f"{analysis['fees_ada']:.4f}"
+                
+                card_html = f'<div style="background: rgba(30, 41, 59, 0.4); border-radius: 0.75rem; padding: 1rem; margin-bottom: 0.5rem;"><div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 0.75rem;"><div style="width: 40px; height: 40px; border-radius: 50%; background: rgba(55, 65, 81, 0.8); display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex-shrink: 0;">{icon}</div><div style="flex: 1; min-width: 0;"><div style="font-size: 1rem; font-weight: 600; color: #f3f4f6; margin-bottom: 0.15rem;">{tipo_display}</div>{subtipo}<div style="color: #9ca3af; font-size: 0.8rem;">Taxa: {fees_display} ₳</div>{token_html}</div><div style="text-align: right; flex-shrink: 0;"><div style="font-size: 1.1rem; font-weight: 700; color: {amount_color};">{amount_str} ₳</div></div></div><div style="border-top: 1px solid rgba(75, 85, 99, 0.3); padding-top: 0.5rem; display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem;"><div style="color: #6b7280;"><span style="font-family: monospace;">{hash_short}</span></div><div><a href="{cardanoscan_link}" target="_blank" style="color: #3b82f6; text-decoration: none; margin-left: 1rem;">🔍 CardanoScan</a></div></div></div>'
+                
+                st.markdown(card_html, unsafe_allow_html=True)
+        
+        if len(transactions) > 50:
+            st.info(f"ℹ️ Mostrando as primeiras 50 de {len(transactions)} transações. Aumente o número de páginas para ver mais.")
+
+def show_info_tab(address):
+    st.markdown("### ℹ️ Informações do Endereço")
+    st.code(address, language="text")
+    
+    # Link para o explorer
+    st.markdown(f"🔗 [Ver no CardanoScan](https://cardanoscan.io/address/{address})")
+    
+    st.markdown("---")
+    
+    st.markdown("""
+    ### 📚 Sobre a API CardanoScan
+    
+    Esta página utiliza a **CardanoScan API** para consultar informações da blockchain Cardano em tempo real.
+    
+    **Funcionalidades disponíveis:**
+    - ✅ Consulta de saldo em ADA e Lovelace
+    - ✅ Listagem de tokens nativos (NFTs e FTs)
+    - ✅ Histórico completo de transações
+    - ✅ Análise automática (enviado/recebido)
+    - ✅ Exportação de dados em CSV
+    - ✅ Links diretos para explorers
+    
+    **Limitações:**
+    - ⚠️ Taxa de requisições limitada pela API
+    - ⚠️ Histórico de transações paginado (20 por página)
+    - ⚠️ Endereços devem estar no formato bech32 (addr1...)
+    
+    **Links úteis:**
+    - 🌐 [CardanoScan Explorer](https://cardanoscan.io)
+    - 📖 [Documentação da API](https://docs.cardanoscan.io)
+    - 🔷 [Cardano Official](https://cardano.org)
+    """)
+    
+    st.markdown("---")
+    st.markdown("### 🔧 Informações Técnicas")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("""
+        **Formato do Endereço:**
+        - 🔑 Bech32 (addr1...)
+        - 🌐 Mainnet Cardano
+        
+        **Unidades:**
+        - 💰 1 ADA = 1.000.000 lovelace
+        - 🪙 1 lovelace = 0.000001 ADA
+        """)
+    
+    with col2:
+        st.markdown("""
+        **API Endpoint:**
+        - 🔗 Base URL: api.cardanoscan.io
+        - 📌 Versão: v1
+        - 🔒 Protocolo: HTTPS
+        
+        **Metadados:** 🧠 Lookup automático (nomes e decimais) via CardanoScan
+        
+        **Status:** 🟢 Conectado
+        """)

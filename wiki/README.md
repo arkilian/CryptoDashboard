@@ -45,9 +45,19 @@ Documentação completa do sistema de gestão de fundos comunitários de criptom
    - Migração automática e compatibilidade legado
    - Boas práticas e notas importantes
 
+5. **[Integração Blockchain Cardano](08-cardano-integration.md)** 🆕
+   - Explorador completo da blockchain Cardano
+   - Consulta de saldo, tokens nativos e metadados
+   - Informações de staking (delegação, rewards, pool)
+   - Histórico de transações com análise automática
+   - Gestão de wallets multi-blockchain
+   - Gestão de contas bancárias (IBAN/SWIFT)
+   - Configuração de APIs via base de dados
+   - Performance e otimizações (cache, batch, paginação reversa)
+
 ### 💼 Negócio
 
-5. **[Modelo de Negócio](04-modelo-negocio.md)**
+6. **[Modelo de Negócio](04-modelo-negocio.md)**
    - Visão geral e proposta de valor
    - Estrutura do fundo (participantes, modelo de propriedade)
    - Casos de uso (família, clubes, gestão profissional, DAOs)
@@ -60,7 +70,7 @@ Documentação completa do sistema de gestão de fundos comunitários de criptom
 
 ### 👤 Utilizadores
 
-6. **[Guias de Utilizador](05-guias-utilizador.md)**
+7. **[Guias de Utilizador](05-guias-utilizador.md)**
    - Para todos: primeiro acesso, dashboard, ver portfólio
    - Para utilizadores: solicitar depósitos/levantamentos, interpretar shares
    - Para admins: gestão de utilizadores, processar movimentos, transações cripto
@@ -69,7 +79,7 @@ Documentação completa do sistema de gestão de fundos comunitários de criptom
 
 ### 🚀 Deployment
 
-7. **[Setup e Deployment](06-setup-deployment.md)**
+8. **[Setup e Deployment](06-setup-deployment.md)**
    - Requisitos do sistema
    - Instalação local (desenvolvimento)
    - Deployment em produção (Streamlit Cloud, Heroku, VPS)
@@ -88,6 +98,7 @@ Documentação completa do sistema de gestão de fundos comunitários de criptom
 1. [Setup Local](06-setup-deployment.md#instalação-local-desenvolvimento)
 2. [Arquitetura](01-arquitetura.md#visão-geral)
 3. [Sistema de Shares](02-shares-nav.md#visão-geral)
+4. [Integração Cardano](08-cardano-integration.md#visão-geral) 🆕
 
 **Novo Administrador?** Comece aqui:
 1. [Primeiro Acesso](05-guias-utilizador.md#primeiro-acesso)
@@ -113,6 +124,8 @@ Documentação completa do sistema de gestão de fundos comunitários de criptom
 - **NAV (Net Asset Value)**: [Sistema de Shares → NAV](02-shares-nav.md#nav-net-asset-value)
 - **Ownership**: [Sistema de Shares → Ownership](02-shares-nav.md#ownership-propriedade)
 - **Cache de Preços**: [Snapshots → Arquitetura](03-snapshots-precos.md#arquitetura)
+- **Cardano Explorer**: [Integração Cardano → Funcionalidades](08-cardano-integration.md#funcionalidades) 🆕
+- **Wallets Multi-Blockchain**: [Integração Cardano → Gestão de Wallets](08-cardano-integration.md#gestão-de-wallets) 🆕
 - **Segurança**: [Deployment → Segurança](06-setup-deployment.md#segurança)
 - **Backup**: [Deployment → Backup](06-setup-deployment.md#backup-e-recuperação)
 
@@ -120,6 +133,8 @@ Documentação completa do sistema de gestão de fundos comunitários de criptom
 
 - **Como criar utilizador**: [Guias → Gestão de Utilizadores](05-guias-utilizador.md#criar-novo-utilizador)
 - **Como processar depósito**: [Guias → Processar Depósitos](05-guias-utilizador.md#processar-depósitos)
+- **Como configurar API Cardano**: [Integração Cardano → Configuração](08-cardano-integration.md#configuração) 🆕
+- **Como adicionar wallet**: [Integração Cardano → Gestão de Wallets](08-cardano-integration.md#crud-operations) 🆕
 - **Como fazer backup**: [Deployment → Backup](06-setup-deployment.md#backup-automatizado)
 - **Como otimizar performance**: [Deployment → Performance Tuning](06-setup-deployment.md#performance-tuning)
 - **Como resolver erro 429**: [Troubleshooting](06-setup-deployment.md#problema-erro-429-too-many-requests)
@@ -129,6 +144,7 @@ Documentação completa do sistema de gestão de fundos comunitários de criptom
 - **PostgreSQL**: [Arquitetura → Base de Dados](01-arquitetura.md#base-de-dados)
 - **Streamlit**: [Arquitetura → Interface](01-arquitetura.md#6-interface-streamlit)
 - **CoinGecko API**: [Snapshots → Integração](03-snapshots-precos.md#integração-coingecko)
+- **CardanoScan API**: [Integração Cardano → API CardanoScan](08-cardano-integration.md#api-cardanoscan) 🆕
 - **Python Services**: [Arquitetura → Componentes](01-arquitetura.md#componentes-principais)
 
 ---
@@ -166,11 +182,17 @@ Session Cache (Memória) → Database Cache (PostgreSQL) → CoinGecko API
 - `services/shares.py` - Lógica core de shares/NAV
 - `services/snapshots.py` - Sistema de cache de preços
 - `services/coingecko.py` - Cliente API
+- `services/cardano_api.py` - Cliente CardanoScan API 🆕
 - `pages/portfolio_analysis.py` - Dashboard principal
+- `pages/cardano.py` - Explorador Cardano 🆕
+- `database/wallets.py` - CRUD wallets 🆕
+- `database/banks.py` - CRUD bancos 🆕
+- `database/api_config.py` - CRUD APIs Cardano 🆕
 
 ### Links Externos
 
 - [CoinGecko API Docs](https://www.coingecko.com/en/api/documentation)
+- [CardanoScan API Docs](https://docs.cardanoscan.io/) 🆕
 - [Streamlit Documentation](https://docs.streamlit.io)
 - [PostgreSQL Documentation](https://www.postgresql.org/docs/)
 - [Python bcrypt](https://github.com/pyca/bcrypt/)
@@ -198,6 +220,15 @@ Para melhorar esta documentação:
 ---
 
 ## 📝 Changelog da Wiki
+
+**Versão 1.1 (Novembro 2025)**: 🆕
+- ✅ Nova secção: Integração Blockchain Cardano (08)
+- ✅ Documentação completa de explorador Cardano
+- ✅ Gestão de wallets multi-blockchain
+- ✅ Gestão de contas bancárias
+- ✅ Configuração de APIs via base de dados
+- ✅ 80+ páginas de conteúdo adicional
+- ✅ Casos de uso práticos e troubleshooting
 
 **Versão 1.0 (Outubro 2025)**:
 - ✅ Documentação completa de 6 secções

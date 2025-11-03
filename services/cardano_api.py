@@ -134,10 +134,15 @@ class CardanoScanAPI:
             # Processar transações para formato amigável
             processed = []
             for tx in all_transactions:
+                fees_value = tx.get("fees", 0)
+                # Converter fees de string para int se necessário
+                if isinstance(fees_value, str):
+                    fees_value = int(fees_value) if fees_value else 0
+                
                 processed.append({
                     "hash": tx.get("hash", ""),
                     "timestamp": tx.get("timestamp", ""),
-                    "fees": int(tx.get("fees", 0)) / 1_000_000,  # Converter para ADA
+                    "fees": fees_value / 1_000_000,  # Converter para ADA
                     "block_height": tx.get("blockHeight", 0),
                     "status": "✅ Confirmada" if tx.get("status", False) else "⏳ Pendente",
                     "inputs": tx.get("inputs", []),
@@ -207,3 +212,116 @@ class CardanoScanAPI:
         
         policy = token.get("policyId", "")[:12]
         return f"Token {policy}..."
+    
+    def analyze_transaction(self, tx: Dict, user_address: str) -> Dict:
+        """
+        Analisa uma transação e determina se foi enviada ou recebida pelo endereço.
+        
+        Args:
+            tx: Dicionário com dados da transação
+            user_address: Endereço do utilizador (para determinar direção)
+            
+        Returns:
+            Dicionário com análise da transação
+        """
+        try:
+            # Converter endereço do usuário para hex para comparação
+            user_address_hex = self._convert_to_hex(user_address).lower()
+        except:
+            user_address_hex = user_address.lower()
+        
+        inputs = tx.get("inputs", [])
+        outputs = tx.get("outputs", [])
+        
+        # Calcular totais
+        total_input_user = 0
+        total_output_user = 0
+        tokens_received = {}
+        tokens_sent = {}
+        
+        # Analisar inputs (de onde veio o ADA)
+        for inp in inputs:
+            addr = inp.get("address", "").lower()
+            value = int(inp.get("value", 0))
+            
+            if addr == user_address_hex or addr == user_address.lower():
+                total_input_user += value
+                # Tokens enviados
+                for token in inp.get("tokens", []):
+                    token_name = self.get_token_name(token)
+                    token_qty = int(token.get("value", token.get("quantity", token.get("amount", 0))))
+                    tokens_sent[token_name] = tokens_sent.get(token_name, 0) + token_qty
+        
+        # Analisar outputs (para onde foi o ADA)
+        for out in outputs:
+            addr = out.get("address", "").lower()
+            value = int(out.get("value", 0))
+            
+            if addr == user_address_hex or addr == user_address.lower():
+                total_output_user += value
+                # Tokens recebidos
+                for token in out.get("tokens", []):
+                    token_name = self.get_token_name(token)
+                    token_qty = int(token.get("value", token.get("quantity", token.get("amount", 0))))
+                    tokens_received[token_name] = tokens_received.get(token_name, 0) + token_qty
+        
+        # Calcular diferença líquida
+        net_change = total_output_user - total_input_user
+        fees_value = tx.get("fees", 0)
+        # Se fees já foi processada como float, usar diretamente, senão processar
+        if isinstance(fees_value, (int, str)):
+            fees = int(fees_value) if isinstance(fees_value, str) else fees_value
+        else:
+            fees = int(fees_value * 1_000_000)  # Já está em ADA, converter para lovelace
+        
+        # Determinar tipo de transação
+        if total_input_user > 0 and total_output_user == 0:
+            tx_type = "sent"
+            icon = "📤"
+            description = "Enviado"
+        elif total_input_user == 0 and total_output_user > 0:
+            tx_type = "received"
+            icon = "📥"
+            description = "Recebido"
+        elif total_input_user > 0 and total_output_user > 0:
+            if net_change > 0:
+                tx_type = "received"
+                icon = "📥"
+                description = "Recebido (parcial)"
+            elif net_change < 0:
+                tx_type = "sent"
+                icon = "📤"
+                description = "Enviado (com troco)"
+            else:
+                tx_type = "internal"
+                icon = "🔄"
+                description = "Interna"
+        else:
+            tx_type = "other"
+            icon = "ℹ️"
+            description = "Outra"
+        
+        # Calcular tokens líquidos (recebidos - enviados)
+        all_tokens = set(list(tokens_received.keys()) + list(tokens_sent.keys()))
+        net_tokens = {}
+        for token in all_tokens:
+            received = tokens_received.get(token, 0)
+            sent = tokens_sent.get(token, 0)
+            net = received - sent
+            if net != 0:
+                net_tokens[token] = net
+        
+        return {
+            "type": tx_type,
+            "icon": icon,
+            "description": description,
+            "net_change_lovelace": net_change,
+            "net_change_ada": net_change / 1_000_000,
+            "fees_lovelace": fees,
+            "fees_ada": fees / 1_000_000,
+            "total_sent": total_input_user / 1_000_000,
+            "total_received": total_output_user / 1_000_000,
+            "net_tokens": net_tokens,
+            "tokens_sent": tokens_sent,
+            "tokens_received": tokens_received
+        }

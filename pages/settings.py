@@ -14,7 +14,10 @@ def show_settings_page():
         st.stop()
 
     # Sub-menus
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["💰 Taxas", "🪙 Ativos", "🏦 Exchanges", "📸 Snapshots", "🏷️ Tags"])
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+        "💰 Taxas", "🪙 Ativos", "🏦 Exchanges", "🏦 Bancos", 
+        "🔌 APIs Cardano", "👛 Wallets", "📸 Snapshots", "🏷️ Tags"
+    ])
 
     # ========================================
     # TAB 1: TAXAS
@@ -295,9 +298,27 @@ def show_settings_page():
             st.info("Adicione uma exchange para gerir contas.")
 
     # ========================================
-    # TAB 4: SNAPSHOTS DE PREÇOS
+    # TAB 4: BANCOS
     # ========================================
     with tab4:
+        show_banks_settings()
+
+    # ========================================
+    # TAB 5: APIs CARDANO
+    # ========================================
+    with tab5:
+        show_api_cardano_settings()
+
+    # ========================================
+    # TAB 6: WALLETS
+    # ========================================
+    with tab6:
+        show_wallets_settings()
+
+    # ========================================
+    # TAB 7: SNAPSHOTS DE PREÇOS
+    # ========================================
+    with tab7:
         from datetime import date, timedelta
         from services.snapshots import populate_snapshots_for_period, update_latest_prices
         
@@ -416,9 +437,9 @@ def show_settings_page():
             st.info("📭 Ainda não há snapshots guardados.")
 
     # ========================================
-    # TAB 5: TAGS (CRUD)
+    # TAB 8: GESTÃO DE TAGS
     # ========================================
-    with tab5:
+    with tab8:
         st.subheader("🏷️ Gestão de Tags (Estratégia)")
         try:
             ensure_default_tags(engine)
@@ -505,6 +526,624 @@ def show_settings_page():
                             st.error(f"❌ Erro ao remover: {e}")
                 else:
                     st.info("Sem tags para remover.")
+
+
+def show_banks_settings():
+    """Tab de configuração de contas bancárias."""
+    from database.banks import (
+        get_all_banks, create_bank, update_bank, delete_bank, 
+        set_primary_bank, validate_iban
+    )
+    
+    st.subheader("🏦 Gestão de Contas Bancárias")
+    
+    # Filtro por utilizador (apenas admin vê todos)
+    user_id = st.session_state.get("user_id")
+    is_admin = st.session_state.get("is_admin", False)
+    
+    if is_admin:
+        # Admin pode ver todos ou filtrar por utilizador
+        from database.users import get_all_users
+        users = get_all_users()
+        user_options = [("Todos", None)] + [(u['username'], u['user_id']) for u in users]
+        selected_user = st.selectbox(
+            "Filtrar por utilizador",
+            options=user_options,
+            format_func=lambda x: x[0],
+            key="banks_filter_user"
+        )
+        filter_user_id = selected_user[1]
+    else:
+        filter_user_id = user_id
+    
+    # Listar bancos
+    banks = get_all_banks(filter_user_id)
+    
+    if banks:
+        df_banks = pd.DataFrame(banks)
+        
+        # Selecionar colunas para display
+        display_cols = ['banco_id', 'username', 'bank_name', 'account_holder', 
+                       'iban', 'currency', 'is_active', 'is_primary']
+        display_df = df_banks[display_cols].copy()
+        display_df['is_active'] = display_df['is_active'].map({True: '✅', False: '❌'})
+        display_df['is_primary'] = display_df['is_primary'].map({True: '⭐', False: ''})
+        
+        display_df = display_df.rename(columns={
+            'banco_id': 'ID',
+            'username': 'Utilizador',
+            'bank_name': 'Banco',
+            'account_holder': 'Titular',
+            'iban': 'IBAN',
+            'currency': 'Moeda',
+            'is_active': 'Ativo',
+            'is_primary': 'Principal'
+        })
+        
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
+    else:
+        st.info("Nenhuma conta bancária cadastrada")
+    
+    st.divider()
+    
+    # Formulário para adicionar/editar
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### ➕ Adicionar Nova Conta")
+        
+        with st.form("add_bank_form"):
+            # Se não admin, usar user_id da sessão
+            if not is_admin:
+                form_user_id = user_id
+                st.info(f"Conta será criada para: {st.session_state.get('username')}")
+            else:
+                users = get_all_users()
+                user_choice = st.selectbox(
+                    "Utilizador",
+                    options=[(u['username'], u['user_id']) for u in users],
+                    format_func=lambda x: x[0],
+                    key="banks_add_user"
+                )
+                form_user_id = user_choice[1]
+            
+            bank_name = st.text_input("Nome do Banco *", placeholder="Ex: Banco BPI")
+            account_holder = st.text_input("Titular *", placeholder="Nome completo")
+            iban = st.text_input("IBAN", placeholder="PT50...")
+            swift_bic = st.text_input("SWIFT/BIC", placeholder="BBPIPTPL")
+            account_number = st.text_input("Número de Conta", placeholder="Formato local")
+            
+            col_a, col_b = st.columns(2)
+            with col_a:
+                currency = st.selectbox("Moeda", ["EUR", "USD", "GBP", "CHF"], index=0)
+            with col_b:
+                account_type = st.selectbox(
+                    "Tipo de Conta",
+                    [None, "checking", "savings", "business", "investment"],
+                    format_func=lambda x: {
+                        None: "Não especificado",
+                        "checking": "À ordem",
+                        "savings": "Poupança",
+                        "business": "Empresarial",
+                        "investment": "Investimento"
+                    }[x]
+                )
+            
+            country = st.text_input("País", placeholder="Portugal")
+            branch = st.text_input("Agência/Balcão", placeholder="Opcional")
+            
+            col_x, col_y = st.columns(2)
+            with col_x:
+                is_active = st.checkbox("Conta Ativa", value=True)
+            with col_y:
+                is_primary = st.checkbox("Conta Principal")
+            
+            notes = st.text_area("Notas", placeholder="Observações adicionais")
+            
+            submitted = st.form_submit_button("💾 Adicionar Conta", use_container_width=True)
+            
+            if submitted:
+                if not bank_name or not account_holder:
+                    st.error("Nome do banco e titular são obrigatórios")
+                elif iban and not validate_iban(iban):
+                    st.warning("⚠️ Formato de IBAN inválido (verificação básica)")
+                else:
+                    success, msg = create_bank(
+                        user_id=form_user_id,
+                        bank_name=bank_name,
+                        account_holder=account_holder,
+                        iban=iban,
+                        swift_bic=swift_bic,
+                        account_number=account_number,
+                        currency=currency,
+                        country=country,
+                        branch=branch,
+                        account_type=account_type,
+                        is_active=is_active,
+                        is_primary=is_primary,
+                        notes=notes
+                    )
+                    
+                    if success:
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
+    
+    with col2:
+        st.markdown("### ✏️ Editar/Remover Conta")
+        
+        if banks:
+            bank_options = [(f"{b['banco_id']} - {b['bank_name']} ({b['username']})", b['banco_id']) 
+                           for b in banks]
+            selected_bank = st.selectbox(
+                "Selecionar Conta",
+                options=bank_options,
+                format_func=lambda x: x[0],
+                key="banks_select_edit"
+            )
+            banco_id = selected_bank[1]
+            
+            # Botões de ação
+            col_btn1, col_btn2, col_btn3 = st.columns(3)
+            
+            with col_btn1:
+                if st.button("⭐ Definir Principal", use_container_width=True):
+                    success, msg = set_primary_bank(banco_id)
+                    if success:
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
+            
+            with col_btn2:
+                if st.button("✏️ Editar", key="btn_edit_bank", use_container_width=True):
+                    st.session_state['editing_bank'] = banco_id
+            
+            with col_btn3:
+                if st.button("🗑️ Remover", type="secondary", use_container_width=True):
+                    if st.session_state.get('confirm_delete_bank') == banco_id:
+                        success, msg = delete_bank(banco_id)
+                        if success:
+                            st.success(msg)
+                            st.session_state.pop('confirm_delete_bank', None)
+                            st.rerun()
+                        else:
+                            st.error(msg)
+                    else:
+                        st.session_state['confirm_delete_bank'] = banco_id
+                        st.warning("⚠️ Clique novamente para confirmar remoção")
+            
+            # Formulário de edição
+            if st.session_state.get('editing_bank') == banco_id:
+                bank_data = next((b for b in banks if b['banco_id'] == banco_id), None)
+                
+                with st.form("edit_bank_form"):
+                    st.markdown("**Editar Conta**")
+                    
+                    edit_bank_name = st.text_input("Nome do Banco", value=bank_data['bank_name'])
+                    edit_holder = st.text_input("Titular", value=bank_data['account_holder'])
+                    edit_iban = st.text_input("IBAN", value=bank_data.get('iban') or '')
+                    edit_swift = st.text_input("SWIFT/BIC", value=bank_data.get('swift_bic') or '')
+                    edit_currency = st.selectbox(
+                        "Moeda", 
+                        ["EUR", "USD", "GBP", "CHF"],
+                        index=["EUR", "USD", "GBP", "CHF"].index(bank_data.get('currency', 'EUR'))
+                    )
+                    edit_active = st.checkbox("Ativa", value=bank_data['is_active'])
+                    
+                    col_save, col_cancel = st.columns(2)
+                    with col_save:
+                        save_btn = st.form_submit_button("💾 Guardar", use_container_width=True)
+                    with col_cancel:
+                        cancel_btn = st.form_submit_button("❌ Cancelar", use_container_width=True)
+                    
+                    if save_btn:
+                        success, msg = update_bank(
+                            banco_id=banco_id,
+                            bank_name=edit_bank_name,
+                            account_holder=edit_holder,
+                            iban=edit_iban if edit_iban else None,
+                            swift_bic=edit_swift if edit_swift else None,
+                            currency=edit_currency,
+                            is_active=edit_active
+                        )
+                        
+                        if success:
+                            st.success(msg)
+                            st.session_state.pop('editing_bank', None)
+                            st.rerun()
+                        else:
+                            st.error(msg)
+                    
+                    if cancel_btn:
+                        st.session_state.pop('editing_bank', None)
+                        st.rerun()
+
+
+def show_api_cardano_settings():
+    """Tab de configuração de APIs Cardano."""
+    from database.api_config import (
+        get_all_apis, create_api, update_api, delete_api, toggle_api_status
+    )
+    
+    st.subheader("🔌 Gestão de APIs Cardano")
+    
+    # Listar APIs
+    apis = get_all_apis()
+    
+    if apis:
+        df_apis = pd.DataFrame(apis)
+        
+        display_cols = ['api_id', 'api_name', 'base_url', 'is_active', 
+                       'rate_limit', 'timeout', 'default_address']
+        display_df = df_apis[display_cols].copy()
+        display_df['is_active'] = display_df['is_active'].map({True: '✅', False: '❌'})
+        display_df['default_address'] = display_df['default_address'].apply(
+            lambda x: f"{x[:12]}...{x[-8:]}" if x and len(x) > 24 else x or ''
+        )
+        
+        display_df = display_df.rename(columns={
+            'api_id': 'ID',
+            'api_name': 'API',
+            'base_url': 'URL Base',
+            'is_active': 'Ativo',
+            'rate_limit': 'Rate Limit',
+            'timeout': 'Timeout',
+            'default_address': 'Endereço Padrão'
+        })
+        
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
+    else:
+        st.info("Nenhuma API configurada")
+    
+    st.divider()
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### ➕ Adicionar Nova API")
+        
+        with st.form("add_api_form"):
+            api_name = st.text_input("Nome da API *", placeholder="Ex: CardanoScan")
+            api_key = st.text_input("API Key *", type="password", placeholder="Sua chave de API")
+            base_url = st.text_input("URL Base *", placeholder="https://api.cardanoscan.io/api/v1")
+            default_address = st.text_input("Endereço Padrão", placeholder="addr1...")
+            
+            col_a, col_b = st.columns(2)
+            with col_a:
+                rate_limit = st.number_input("Rate Limit (req/min)", min_value=0, value=60)
+            with col_b:
+                timeout = st.number_input("Timeout (segundos)", min_value=1, value=10)
+            
+            is_active = st.checkbox("API Ativa", value=True)
+            notes = st.text_area("Notas", placeholder="Observações sobre a API")
+            
+            submitted = st.form_submit_button("💾 Adicionar API", use_container_width=True)
+            
+            if submitted:
+                if not api_name or not api_key or not base_url:
+                    st.error("Nome, API Key e URL são obrigatórios")
+                else:
+                    success, msg = create_api(
+                        api_name=api_name,
+                        api_key=api_key,
+                        base_url=base_url,
+                        is_active=is_active,
+                        default_address=default_address if default_address else None,
+                        rate_limit=rate_limit if rate_limit > 0 else None,
+                        timeout=timeout,
+                        notes=notes if notes else None
+                    )
+                    
+                    if success:
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
+    
+    with col2:
+        st.markdown("### ✏️ Editar/Remover API")
+        
+        if apis:
+            api_options = [(f"{a['api_id']} - {a['api_name']}", a['api_id']) for a in apis]
+            selected_api = st.selectbox(
+                "Selecionar API",
+                options=api_options,
+                format_func=lambda x: x[0],
+                key="apis_select_edit"
+            )
+            api_id = selected_api[1]
+            
+            col_btn1, col_btn2, col_btn3 = st.columns(3)
+            
+            with col_btn1:
+                if st.button("🔄 Ativar/Desativar", use_container_width=True):
+                    success, msg = toggle_api_status(api_id)
+                    if success:
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
+            
+            with col_btn2:
+                if st.button("✏️ Editar", key="btn_edit_api", use_container_width=True):
+                    st.session_state['editing_api'] = api_id
+            
+            with col_btn3:
+                if st.button("🗑️ Remover", type="secondary", use_container_width=True):
+                    if st.session_state.get('confirm_delete_api') == api_id:
+                        success, msg = delete_api(api_id)
+                        if success:
+                            st.success(msg)
+                            st.session_state.pop('confirm_delete_api', None)
+                            st.rerun()
+                        else:
+                            st.error(msg)
+                    else:
+                        st.session_state['confirm_delete_api'] = api_id
+                        st.warning("⚠️ Clique novamente para confirmar remoção")
+            
+            # Formulário de edição
+            if st.session_state.get('editing_api') == api_id:
+                api_data = next((a for a in apis if a['api_id'] == api_id), None)
+                
+                with st.form("edit_api_form"):
+                    st.markdown("**Editar API**")
+                    
+                    edit_name = st.text_input("Nome", value=api_data['api_name'])
+                    edit_key = st.text_input("API Key", type="password", value=api_data['api_key'])
+                    edit_url = st.text_input("URL", value=api_data['base_url'])
+                    edit_default_addr = st.text_input("Endereço Padrão", 
+                                                      value=api_data.get('default_address') or '')
+                    edit_timeout = st.number_input("Timeout", min_value=1, 
+                                                   value=api_data.get('timeout', 10))
+                    
+                    col_save, col_cancel = st.columns(2)
+                    with col_save:
+                        save_btn = st.form_submit_button("💾 Guardar", use_container_width=True)
+                    with col_cancel:
+                        cancel_btn = st.form_submit_button("❌ Cancelar", use_container_width=True)
+                    
+                    if save_btn:
+                        success, msg = update_api(
+                            api_id=api_id,
+                            api_name=edit_name,
+                            api_key=edit_key,
+                            base_url=edit_url,
+                            default_address=edit_default_addr if edit_default_addr else None,
+                            timeout=edit_timeout
+                        )
+                        
+                        if success:
+                            st.success(msg)
+                            st.session_state.pop('editing_api', None)
+                            st.rerun()
+                        else:
+                            st.error(msg)
+                    
+                    if cancel_btn:
+                        st.session_state.pop('editing_api', None)
+                        st.rerun()
+
+
+def show_wallets_settings():
+    """Tab de configuração de wallets."""
+    from database.wallets import (
+        get_all_wallets, create_wallet, update_wallet, delete_wallet,
+        set_primary_wallet, update_balance_sync
+    )
+    
+    st.subheader("👛 Gestão de Wallets")
+    
+    # Filtro por utilizador
+    user_id = st.session_state.get("user_id")
+    is_admin = st.session_state.get("is_admin", False)
+    
+    if is_admin:
+        from database.users import get_all_users
+        users = get_all_users()
+        user_options = [("Todos", None)] + [(u['username'], u['user_id']) for u in users]
+        selected_user = st.selectbox(
+            "Filtrar por utilizador",
+            options=user_options,
+            format_func=lambda x: x[0],
+            key="wallets_filter_user"
+        )
+        filter_user_id = selected_user[1]
+    else:
+        filter_user_id = user_id
+    
+    # Listar wallets
+    wallets = get_all_wallets(filter_user_id)
+    
+    if wallets:
+        df_wallets = pd.DataFrame(wallets)
+        
+        display_cols = ['wallet_id', 'username', 'wallet_name', 'wallet_type', 
+                       'blockchain', 'address', 'is_active', 'is_primary']
+        display_df = df_wallets[display_cols].copy()
+        display_df['is_active'] = display_df['is_active'].map({True: '✅', False: '❌'})
+        display_df['is_primary'] = display_df['is_primary'].map({True: '⭐', False: ''})
+        display_df['address'] = display_df['address'].apply(
+            lambda x: f"{x[:12]}...{x[-8:]}" if len(x) > 24 else x
+        )
+        
+        display_df = display_df.rename(columns={
+            'wallet_id': 'ID',
+            'username': 'Utilizador',
+            'wallet_name': 'Nome',
+            'wallet_type': 'Tipo',
+            'blockchain': 'Blockchain',
+            'address': 'Endereço',
+            'is_active': 'Ativo',
+            'is_primary': 'Principal'
+        })
+        
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
+    else:
+        st.info("Nenhuma wallet cadastrada")
+    
+    st.divider()
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### ➕ Adicionar Nova Wallet")
+        
+        with st.form("add_wallet_form"):
+            if not is_admin:
+                form_user_id = user_id
+                st.info(f"Wallet será criada para: {st.session_state.get('username')}")
+            else:
+                users = get_all_users()
+                user_choice = st.selectbox(
+                    "Utilizador",
+                    options=[(u['username'], u['user_id']) for u in users],
+                    format_func=lambda x: x[0],
+                    key="wallets_add_user"
+                )
+                form_user_id = user_choice[1]
+            
+            wallet_name = st.text_input("Nome da Wallet *", placeholder="Ex: Eternl Principal")
+            
+            col_a, col_b = st.columns(2)
+            with col_a:
+                wallet_type = st.selectbox(
+                    "Tipo *",
+                    ["hot", "cold", "hardware", "exchange", "defi"],
+                    format_func=lambda x: {
+                        "hot": "🔥 Hot (Online)",
+                        "cold": "❄️ Cold (Offline)",
+                        "hardware": "🔐 Hardware",
+                        "exchange": "🏦 Exchange",
+                        "defi": "🌐 DeFi"
+                    }[x]
+                )
+            with col_b:
+                blockchain = st.selectbox("Blockchain *", ["Cardano", "Ethereum", "Bitcoin", "Solana"])
+            
+            address = st.text_input("Endereço *", placeholder="addr1...")
+            stake_address = st.text_input("Stake Address (Cardano)", placeholder="stake1...")
+            
+            col_x, col_y = st.columns(2)
+            with col_x:
+                is_active = st.checkbox("Wallet Ativa", value=True)
+            with col_y:
+                is_primary = st.checkbox("Wallet Principal")
+            
+            notes = st.text_area("Notas", placeholder="Observações adicionais")
+            
+            submitted = st.form_submit_button("💾 Adicionar Wallet", use_container_width=True)
+            
+            if submitted:
+                if not wallet_name or not address or not blockchain:
+                    st.error("Nome, endereço e blockchain são obrigatórios")
+                else:
+                    success, msg = create_wallet(
+                        user_id=form_user_id,
+                        wallet_name=wallet_name,
+                        wallet_type=wallet_type,
+                        blockchain=blockchain,
+                        address=address,
+                        stake_address=stake_address if stake_address else None,
+                        is_active=is_active,
+                        is_primary=is_primary,
+                        notes=notes if notes else None
+                    )
+                    
+                    if success:
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
+    
+    with col2:
+        st.markdown("### ✏️ Editar/Remover Wallet")
+        
+        if wallets:
+            wallet_options = [(f"{w['wallet_id']} - {w['wallet_name']} ({w['username']})", w['wallet_id']) 
+                             for w in wallets]
+            selected_wallet = st.selectbox(
+                "Selecionar Wallet",
+                options=wallet_options,
+                format_func=lambda x: x[0],
+                key="wallets_select_edit"
+            )
+            wallet_id = selected_wallet[1]
+            
+            col_btn1, col_btn2, col_btn3 = st.columns(3)
+            
+            with col_btn1:
+                if st.button("⭐ Definir Principal", use_container_width=True):
+                    success, msg = set_primary_wallet(wallet_id)
+                    if success:
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
+            
+            with col_btn2:
+                if st.button("✏️ Editar", key="btn_edit_wallet", use_container_width=True):
+                    st.session_state['editing_wallet'] = wallet_id
+            
+            with col_btn3:
+                if st.button("🗑️ Remover", type="secondary", use_container_width=True):
+                    if st.session_state.get('confirm_delete_wallet') == wallet_id:
+                        success, msg = delete_wallet(wallet_id)
+                        if success:
+                            st.success(msg)
+                            st.session_state.pop('confirm_delete_wallet', None)
+                            st.rerun()
+                        else:
+                            st.error(msg)
+                    else:
+                        st.session_state['confirm_delete_wallet'] = wallet_id
+                        st.warning("⚠️ Clique novamente para confirmar remoção")
+            
+            # Formulário de edição
+            if st.session_state.get('editing_wallet') == wallet_id:
+                wallet_data = next((w for w in wallets if w['wallet_id'] == wallet_id), None)
+                
+                with st.form("edit_wallet_form"):
+                    st.markdown("**Editar Wallet**")
+                    
+                    edit_name = st.text_input("Nome", value=wallet_data['wallet_name'])
+                    edit_type = st.selectbox(
+                        "Tipo",
+                        ["hot", "cold", "hardware", "exchange", "defi"],
+                        index=["hot", "cold", "hardware", "exchange", "defi"].index(wallet_data['wallet_type']),
+                        format_func=lambda x: {
+                            "hot": "🔥 Hot", "cold": "❄️ Cold", "hardware": "🔐 Hardware",
+                            "exchange": "🏦 Exchange", "defi": "🌐 DeFi"
+                        }[x]
+                    )
+                    edit_active = st.checkbox("Ativa", value=wallet_data['is_active'])
+                    
+                    col_save, col_cancel = st.columns(2)
+                    with col_save:
+                        save_btn = st.form_submit_button("💾 Guardar", use_container_width=True)
+                    with col_cancel:
+                        cancel_btn = st.form_submit_button("❌ Cancelar", use_container_width=True)
+                    
+                    if save_btn:
+                        success, msg = update_wallet(
+                            wallet_id=wallet_id,
+                            wallet_name=edit_name,
+                            wallet_type=edit_type,
+                            is_active=edit_active
+                        )
+                        
+                        if success:
+                            st.success(msg)
+                            st.session_state.pop('editing_wallet', None)
+                            st.rerun()
+                        else:
+                            st.error(msg)
+                    
+                    if cancel_btn:
+                        st.session_state.pop('editing_wallet', None)
+                        st.rerun()
 
 
 if __name__ == "__main__":

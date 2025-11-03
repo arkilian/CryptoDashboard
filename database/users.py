@@ -48,3 +48,30 @@ def authenticate_user(username: str, password: str):
     if user and verify_password(password, user[2], user[3]):
         return {"user_id": user[0], "username": user[1], "is_admin": user[4]}
     return None
+
+def get_all_users():
+    """
+    Retorna todos os utilizadores do sistema.
+    """
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT user_id, username, is_admin, created_at
+            FROM t_users
+            ORDER BY username
+        """)
+        rows = cur.fetchall()
+        cur.close()
+        
+        users = []
+        for row in rows:
+            users.append({
+                'user_id': row[0],
+                'username': row[1],
+                'is_admin': row[2],
+                'created_at': row[3]
+            })
+        return users
+    finally:
+        return_connection(conn)

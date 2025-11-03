@@ -10,10 +10,7 @@ load_dotenv()
 
 # Read sensitive configs from environment
 API_KEY = os.getenv("API_KEY")
-DEFAULT_ADDRESS = os.getenv(
-    "DEFAULT_ADDRESS",
-    "addr1q86l9qs02uhmh95yj8vgmecky4yfkxlctaae8axx0xut63p42ytjhzpls30rpmffa6y335yrxcuzh0q55d30ramjyefqvyf4rw",
-)
+DEFAULT_ADDRESS = os.getenv("DEFAULT_ADDRESS")
 
 def show():
     """Pagina principal do Cardano."""

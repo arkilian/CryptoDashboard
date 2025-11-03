@@ -31,9 +31,8 @@ class CardanoScanAPI:
         "HOSKY": 0,
     }
 
-    # Mapa de casas decimais por policyId (pode usar prefixos para corresponder)
+    # Mapa de casas decimais por policyId (para tokens específicos)
     TOKEN_DECIMALS_BY_POLICY = {
-        # Exemplo: policyId (ou prefixo) -> decimais
         "6df63e2fdde8b2c3b3396265b0cc824aa4fb999396b1c154280f6b0c": 6,  # qDJED
     }
     
@@ -317,35 +316,6 @@ class CardanoScanAPI:
             return None, f"Erro de conexão: {str(e)}"
         except Exception as e:
             return None, f"Erro inesperado: {str(e)}"
-    
-    def format_timestamp(self, timestamp_str: str) -> str:
-        """
-        Formata timestamp ISO para formato legível.
-        
-        Args:
-            timestamp_str: String de timestamp ISO
-            
-        Returns:
-            String formatada
-        """
-        try:
-            dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
-            return dt.strftime("%d/%m/%Y %H:%M:%S")
-        except:
-            return timestamp_str
-    
-    def format_ada_amount(self, lovelace: int) -> str:
-        """
-        Formata quantidade de lovelace para ADA.
-        
-        Args:
-            lovelace: Quantidade em lovelace
-            
-        Returns:
-            String formatada em ADA
-        """
-        ada = lovelace / 1_000_000
-        return f"{ada:,.6f} ₳"
     
     def get_token_name(self, token: Dict) -> str:
         """

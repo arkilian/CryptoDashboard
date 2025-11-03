@@ -9,6 +9,7 @@ Implementação:
 - Se não encontrar, consulta `/coins/list` e faz correspondência por `symbol` (case-insensitive).
 - Usa `/simple/price` para obter preços em massa.
 - Tem caching in-memory com TTL para reduzir chamadas à API.
+- Lê configuração (rate_limit, api_key) da tabela t_api_coingecko para ajustar comportamento.
 """
 from typing import List, Dict, Optional
 from datetime import date
@@ -18,7 +19,37 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# ---------- Dynamic config from DB ----------
+_coingecko_config_cache: Optional[tuple] = None  # (timestamp, config_dict)
+_coingecko_config_cache_ttl = 300  # 5 minutos
+
+
+def _get_coingecko_config() -> Optional[Dict]:
+    """Fetch active CoinGecko API config from t_api_coingecko.
+    
+    Returns dict with keys: api_key, base_url, rate_limit, timeout, or None if not configured.
+    Cached for 5 minutes to avoid repeated DB queries.
+    """
+    global _coingecko_config_cache
+    now = time.time()
+    if _coingecko_config_cache is not None:
+        cache_time, cached = _coingecko_config_cache
+        if now - cache_time < _coingecko_config_cache_ttl:
+            return cached
+    
+    try:
+        from database.api_config import get_active_coingecko_apis
+        apis = get_active_coingecko_apis()
+        if apis:
+            config = apis[0]  # Use the first active config
+            _coingecko_config_cache = (now, config)
+            return config
+    except Exception as e:
+        logger.warning(f"Erro ao buscar config CoinGecko da DB: {e}")
+    return None
+
 # URL base da API CoinGecko (sem API key necessária para endpoints públicos)
+# Será substituído dinamicamente pela config da DB se disponível
 BASE_URL = "https://api.coingecko.com/api/v3"
 
 # Mapeamento rápido para moedas/tokens comuns: symbol (uppercase) -> coingecko id
@@ -46,9 +77,43 @@ _symbol_to_id_cache: Dict[str, str] = {k.upper(): v for k, v in COMMON_SYMBOL_MA
 _price_cache: Dict[str, tuple] = {}  # {cache_key: (timestamp, prices_dict)}
 _price_cache_ttl = 300  # 5 minutos - aumentado para reduzir chamadas API
 
-# Rate limiter global - garantir mínimo de 4 segundos entre QUALQUER chamada API
+# Rate limiter global - garantir mínimo de X segundos entre QUALQUER chamada API
+# Valores base (podem ser sobrescritos pela config da DB)
 _last_api_call_time = 0
 _min_delay_between_calls = 4.0  # segundos - aumentado para evitar 429 errors
+
+
+def _get_rate_limit_delay() -> float:
+    """Calculate minimum delay between API calls based on DB config.
+    
+    Returns delay in seconds. Defaults to 4.0s if no config or rate_limit not set.
+    rate_limit in DB is calls per minute; we compute delay = 60 / rate_limit.
+    """
+    config = _get_coingecko_config()
+    if config and config.get('rate_limit'):
+        rate_limit = int(config['rate_limit'])
+        if rate_limit > 0:
+            # Convert rate_limit (calls per minute) to delay (seconds between calls)
+            delay = 60.0 / rate_limit
+            return max(delay, 1.0)  # Minimum 1 second between calls
+    return 4.0  # fallback
+
+
+def _get_headers() -> Dict[str, str]:
+    """Build request headers, including Authorization if api_key is configured."""
+    headers = {"Accept": "application/json"}
+    config = _get_coingecko_config()
+    if config and config.get('api_key'):
+        headers["x-cg-pro-api-key"] = config['api_key']
+    return headers
+
+
+def _get_base_url() -> str:
+    """Get base URL from DB config or fallback to public API."""
+    config = _get_coingecko_config()
+    if config and config.get('base_url'):
+        return config['base_url']
+    return BASE_URL
 
 
 def _get_coin_list() -> List[Dict]:
@@ -62,13 +127,13 @@ def _get_coin_list() -> List[Dict]:
         if now - cache_time < _coin_list_cache_ttl:
             return cached_data
 
-    url = f"{BASE_URL}/coins/list"
+    url = f"{_get_base_url()}/coins/list"
     # Retry on transient errors (including 429) with short backoff
     retries = 3
     backoff = 3.0  # Aumentado para 3s para evitar rate limits
     for attempt in range(retries):
         try:
-            resp = requests.get(url, timeout=10)
+            resp = requests.get(url, headers=_get_headers(), timeout=10)
             resp.raise_for_status()
             data = resp.json()
             _coin_list_cache = (now, data)
@@ -105,6 +170,14 @@ def _symbol_to_id(symbol: str) -> Optional[str]:
             return coin_id
 
     return None
+
+
+def resolve_coingecko_id_for_symbol(symbol: str) -> Optional[str]:
+    """Public wrapper to resolve a CoinGecko ID for a given symbol (case-insensitive).
+
+    Returns None if no mapping was found.
+    """
+    return _symbol_to_id(symbol)
 
 
 def get_price_by_symbol(symbols: List[str], vs_currency: str = "eur") -> Dict[str, Optional[float]]:
@@ -148,19 +221,20 @@ def get_price_by_symbol(symbols: List[str], vs_currency: str = "eur") -> Dict[st
         "ids": ",".join(ids),
         "vs_currencies": vs_currency,
     }
-    url = f"{BASE_URL}/simple/price"
+    url = f"{_get_base_url()}/simple/price"
 
     # Retry on transient errors (e.g., 429) with exponential backoff
     retries = 5
     backoff = 3.0
     for attempt in range(retries):
         try:
-            # Rate limiter global - garantir delay mínimo entre chamadas
+            # Rate limiter global - garantir delay mínimo entre chamadas (dinâmico)
             global _last_api_call_time
             current_time = time.time()
             time_since_last_call = current_time - _last_api_call_time
-            if time_since_last_call < _min_delay_between_calls:
-                wait_time = _min_delay_between_calls - time_since_last_call
+            min_delay = _get_rate_limit_delay()
+            if time_since_last_call < min_delay:
+                wait_time = min_delay - time_since_last_call
                 logger.info(f"⏱️ Rate limiter: aguardando {wait_time:.2f}s antes da chamada API")
                 time.sleep(wait_time)
             
@@ -170,7 +244,7 @@ def get_price_by_symbol(symbols: List[str], vs_currency: str = "eur") -> Dict[st
             
             _last_api_call_time = time.time()  # Atualizar timestamp
             cache_timestamp = _last_api_call_time  # Capture timestamp for cache
-            resp = requests.get(url, params=params, timeout=15)
+            resp = requests.get(url, params=params, headers=_get_headers(), timeout=15)
             resp.raise_for_status()
             data = resp.json()
 
@@ -220,18 +294,19 @@ def _rate_limited_get(url: str, params: Optional[dict] = None, timeout: int = 15
     backoff = 3.0
     for attempt in range(retries):
         try:
-            # Enforce global min delay between calls
+            # Enforce global min delay between calls (dynamic from DB config)
             now = time.time()
             elapsed = now - _last_api_call_time
-            if elapsed < _min_delay_between_calls:
-                time.sleep(_min_delay_between_calls - elapsed)
+            min_delay = _get_rate_limit_delay()
+            if elapsed < min_delay:
+                time.sleep(min_delay - elapsed)
 
             # Additional backoff between retries
             if attempt > 0:
                 time.sleep(backoff)
 
             _last_api_call_time = time.time()
-            resp = requests.get(url, params=params or {}, timeout=timeout)
+            resp = requests.get(url, params=params or {}, headers=_get_headers(), timeout=timeout)
             resp.raise_for_status()
             return resp.json()
         except requests.RequestException as e:
@@ -244,7 +319,7 @@ def _rate_limited_get(url: str, params: Optional[dict] = None, timeout: int = 15
 
 def get_current_price_by_id(coin_id: str, vs_currency: str = "eur") -> Optional[float]:
     """Get current price for a specific CoinGecko coin id, with rate limiting and retries."""
-    url = f"{BASE_URL}/simple/price"
+    url = f"{_get_base_url()}/simple/price"
     data = _rate_limited_get(url, params={"ids": coin_id, "vs_currencies": vs_currency}, timeout=15, retries=5)
     if not data:
         return None
@@ -266,7 +341,7 @@ def get_historical_price_by_id(coin_id: str, target_date: date, vs_currency: str
     except Exception:
         # If a str was passed, assume it's already correct
         date_str = str(target_date)
-    url = f"{BASE_URL}/coins/{coin_id}/history"
+    url = f"{_get_base_url()}/coins/{coin_id}/history"
     data = _rate_limited_get(url, params={"date": date_str, "localization": "false"}, timeout=20, retries=5)
     if not data:
         return None
@@ -342,13 +417,13 @@ class CoinGeckoService:
             if mapped:
                 coin_id = mapped
 
-        url = f"{BASE_URL}/coins/{coin_id}/market_chart"
+        url = f"{_get_base_url()}/coins/{coin_id}/market_chart"
         params = {"vs_currency": vs_currency, "days": days}
         retries = 3
         backoff = 1.0
         for attempt in range(retries):
             try:
-                resp = requests.get(url, params=params, timeout=15)
+                resp = requests.get(url, params=params, headers=_get_headers(), timeout=15)
                 resp.raise_for_status()
                 return resp.json()
             except requests.RequestException as e:

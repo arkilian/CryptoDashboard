@@ -25,6 +25,7 @@ from database.connection import get_connection, return_connection
 from database.api_config import get_active_apis
 from database.wallets import get_active_wallets
 from services.cardano_api import CardanoScanAPI
+from services.snapshots import ensure_assets_and_snapshots
 from psycopg2.extras import Json
 
 
@@ -105,7 +106,7 @@ def _insert_transaction(cur, wallet_id: int, address: str, tx: Dict):
     )
 
 
-def _insert_io_rows(cur, wallet_id: int, bech32_address: str, api: CardanoScanAPI, tx: Dict):
+def _insert_io_rows(cur, wallet_id: int, bech32_address: str, api: CardanoScanAPI, tx: Dict, symbols_accum: Optional[set] = None):
     """Insert per-IO rows for the specific wallet address.
 
     Only records rows where the IO address equals the tracked wallet address.
@@ -143,6 +144,8 @@ def _insert_io_rows(cur, wallet_id: int, bech32_address: str, api: CardanoScanAP
                     """,
                     (tx_hash, wallet_id, io_type, bech32_address, lovelace),
                 )
+                if symbols_accum is not None and lovelace != 0:
+                    symbols_accum.add("ADA")
 
             # Tokens (optional)
             tokens = it.get("tokens", [])
@@ -186,6 +189,8 @@ def _insert_io_rows(cur, wallet_id: int, bech32_address: str, api: CardanoScanAP
                             formatted,
                         ),
                     )
+                    if symbols_accum is not None and display_name:
+                        symbols_accum.add(str(display_name).upper())
 
     _handle_side(tx.get("inputs", []), "input")
     _handle_side(tx.get("outputs", []), "output")
@@ -225,9 +230,31 @@ def sync_wallet_transactions(wallet_id: int, bech32_address: str, max_pages: int
                 "Esquema Cardano v3 em falta. Aplique a migration database/migrations/20251103_cardano_tx_v3.sql."
             )
         total_io = 0
+        symbols_seen: set = set()
+        min_tx_date = None
+        max_tx_date = None
         for tx in transactions:
             _insert_transaction(cur, wallet_id, bech32_address, tx)
-            _insert_io_rows(cur, wallet_id, bech32_address, api, tx)
+            _insert_io_rows(cur, wallet_id, bech32_address, api, tx, symbols_accum=symbols_seen)
+            # Track tx date range
+            ts = tx.get("timestamp")
+            tx_dt = None
+            if isinstance(ts, str):
+                try:
+                    if "T" in ts:
+                        tx_dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                    else:
+                        tx_dt = datetime.fromtimestamp(int(ts), tz=timezone.utc)
+                except Exception:
+                    tx_dt = None
+            elif isinstance(ts, (int, float)):
+                tx_dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+            if tx_dt is not None:
+                d = tx_dt.date()
+                if min_tx_date is None or d < min_tx_date:
+                    min_tx_date = d
+                if max_tx_date is None or d > max_tx_date:
+                    max_tx_date = d
             # count IO rows inserted for this tx (rough estimate via rowcount not reliable as multiple inserts)
             # We'll recompute at the end.
 
@@ -268,6 +295,13 @@ def sync_wallet_transactions(wallet_id: int, bech32_address: str, max_pages: int
         cur.execute("SELECT COUNT(*) FROM t_cardano_tx_io WHERE wallet_id = %s", (wallet_id,))
         total_io = cur.fetchone()[0] or 0
         conn.commit()
+        # After commit, ensure assets and snapshots for period (best-effort)
+        try:
+            if symbols_seen and min_tx_date and max_tx_date:
+                ensure_assets_and_snapshots(sorted(symbols_seen), min_tx_date, max_tx_date)
+        except Exception:
+            # Don't fail sync if pricing prep fails
+            pass
         return (len(transactions), int(total_io))
     except Exception:
         conn.rollback()

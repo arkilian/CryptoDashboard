@@ -12,7 +12,7 @@ from typing import List, Dict, Optional
 import pandas as pd
 from sqlalchemy import text
 from database.connection import get_engine
-from services.coingecko import CoinGeckoService, get_current_price_by_id, get_historical_price_by_id
+from services.coingecko import CoinGeckoService, get_current_price_by_id, get_historical_price_by_id, resolve_coingecko_id_for_symbol
 import time
 
 logger = logging.getLogger(__name__)
@@ -220,23 +220,36 @@ def get_historical_prices_by_symbol(symbols: List[str], target_date: date, allow
     
     engine = get_engine()
     
-    # Buscar asset_ids dos símbolos
+    # Buscar asset_ids por símbolo OU por nome (maior cobertura)
     placeholders = ','.join(['%s'] * len(missing_symbols))
     df_assets = pd.read_sql(
         f"""
-        SELECT asset_id, symbol 
+        SELECT asset_id, symbol, name 
         FROM t_assets 
-        WHERE symbol IN ({placeholders})
+        WHERE UPPER(symbol) IN ({placeholders})
+           OR UPPER(name)   IN ({placeholders})
         """,
         engine,
-        params=tuple(missing_symbols)
+        params=tuple([s.upper() for s in missing_symbols] + [s.upper() for s in missing_symbols])
     )
     
     if df_assets.empty:
         return result
     
     # Mapear symbol -> asset_id efficiently using pandas to_dict
-    symbol_to_id = dict(zip(df_assets['symbol'], df_assets['asset_id'].astype(int)))
+    # Preferir mapear por symbol; se não existir, usar name match
+    symbol_to_id = {}
+    for _, r in df_assets.iterrows():
+        sym = str(r['symbol']).upper() if pd.notna(r['symbol']) else None
+        nm = str(r['name']).upper() if pd.notna(r['name']) else None
+        aid = int(r['asset_id'])
+        if sym and sym in [s.upper() for s in missing_symbols]:
+            symbol_to_id[sym] = aid
+        if nm and nm in [s.upper() for s in missing_symbols] and nm not in symbol_to_id:
+            symbol_to_id[nm] = aid
+
+    # Criar mapeamento na mesma casing dos missing_symbols originais
+    symbol_to_id = {orig: symbol_to_id.get(orig.upper()) for orig in missing_symbols if symbol_to_id.get(orig.upper())}
     asset_ids = list(symbol_to_id.values())
     
     # Buscar preços históricos por asset_id (com rate limiting)
@@ -302,3 +315,109 @@ if __name__ == "__main__":
     
     # Atualizar preços de hoje
     update_latest_prices()
+
+
+# ---------- Helpers used by Cardano sync to ensure assets and snapshots ----------
+def ensure_assets_for_symbols(symbols: List[str], chain: str = "Cardano") -> Dict[str, int]:
+    """Ensure rows exist in t_assets for provided symbols.
+
+    If an asset is missing, insert it and try to resolve coingecko_id by symbol.
+    Returns mapping {symbol: asset_id} for all provided symbols that exist after ensuring.
+    """
+    if not symbols:
+        return {}
+    engine = get_engine()
+    out: Dict[str, int] = {}
+    # Normalize symbols list (unique, non-empty)
+    symbols_norm = [s for s in sorted(set([str(s).strip() for s in symbols])) if s]
+    if not symbols_norm:
+        return {}
+
+    # Query existing
+    placeholders = ','.join(['%s'] * len(symbols_norm))
+    df = pd.read_sql(
+        f"""
+        SELECT asset_id, symbol, coingecko_id FROM t_assets WHERE UPPER(symbol) IN ({placeholders})
+        """,
+        engine,
+        params=tuple([s.upper() for s in symbols_norm])
+    )
+    existing = {str(r['symbol']).upper(): int(r['asset_id']) for _, r in df.iterrows()}
+    for s in symbols_norm:
+        if s.upper() in existing:
+            out[s] = existing[s.upper()]
+
+    # Insert missing
+    missing = [s for s in symbols_norm if s.upper() not in existing]
+    if missing:
+        # Try resolve coingecko id for each symbol
+        rows = []
+        for s in missing:
+            cg_id = resolve_coingecko_id_for_symbol(s)
+            rows.append({
+                'symbol': s,
+                'name': s,
+                'chain': chain,
+                'coingecko_id': cg_id,
+                'is_stablecoin': False,
+            })
+        # Bulk insert
+        try:
+            with engine.begin() as conn:
+                for r in rows:
+                    conn.execute(
+                        text("""
+                            INSERT INTO t_assets (symbol, name, chain, coingecko_id, is_stablecoin)
+                            VALUES (:symbol, :name, :chain, :coingecko_id, :is_stablecoin)
+                            ON CONFLICT (symbol) DO UPDATE
+                            SET name = COALESCE(EXCLUDED.name, t_assets.name),
+                                chain = COALESCE(EXCLUDED.chain, t_assets.chain),
+                                coingecko_id = COALESCE(EXCLUDED.coingecko_id, t_assets.coingecko_id)
+                        """), r)
+        except Exception as e:
+            logger.warning(f"Erro ao inserir ativos em t_assets: {e}")
+
+        # Requery to get asset_ids
+        df2 = pd.read_sql(
+            f"""
+            SELECT asset_id, symbol FROM t_assets WHERE UPPER(symbol) IN ({placeholders})
+            """,
+            engine,
+            params=tuple([s.upper() for s in symbols_norm])
+        )
+        for _, r in df2.iterrows():
+            out[str(r['symbol'])] = int(r['asset_id'])
+
+    return out
+
+
+def ensure_assets_and_snapshots(symbols: List[str], start_date: date, end_date: date):
+    """Ensure t_assets exist and populate t_price_snapshots for the period for resolvable assets.
+
+    Only assets with a coingecko_id will receive snapshots.
+    """
+    if not symbols or start_date is None or end_date is None:
+        return
+    # Ensure assets
+    mapping = ensure_assets_for_symbols(symbols, chain="Cardano")
+    if not mapping:
+        return
+    # Filter assets that do have coingecko_id
+    engine = get_engine()
+    placeholders = ','.join(['%s'] * len(mapping))
+    df = pd.read_sql(
+        f"""
+        SELECT asset_id FROM t_assets 
+        WHERE asset_id IN ({placeholders}) AND coingecko_id IS NOT NULL
+        """,
+        engine,
+        params=tuple(mapping.values())
+    )
+    asset_ids = [int(aid) for aid in df['asset_id'].tolist()]
+    if not asset_ids:
+        return
+    # Populate snapshots for this period
+    try:
+        populate_snapshots_for_period(start_date, end_date, asset_ids)
+    except Exception as e:
+        logger.warning(f"Erro ao popular snapshots para período {start_date}..{end_date}: {e}")

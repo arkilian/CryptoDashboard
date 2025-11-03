@@ -1,10 +1,14 @@
 """
-Módulo para gestão de configurações de APIs Cardano.
-Permite CRUD de configurações de APIs (CardanoScan, Blockfrost, Koios, etc.)
+Módulo para gestão de configurações de APIs Cardano e CoinGecko.
+Permite CRUD de configurações de APIs (CardanoScan, Blockfrost, Koios, CoinGecko, etc.)
 """
 import psycopg2
 from typing import List, Dict, Optional, Tuple
 from database.connection import get_connection, return_connection
+
+# ========================================
+# CARDANO APIs
+# ========================================
 
 def get_all_apis() -> List[Dict]:
     """Retorna todas as APIs cadastradas."""
@@ -236,6 +240,244 @@ def toggle_api_status(api_id: int) -> Tuple[bool, str]:
         conn.commit()
         status_text = "ativada" if new_status else "desativada"
         return True, f"API {status_text} com sucesso"
+    except Exception as e:
+        conn.rollback()
+        return False, f"Erro ao alterar status: {str(e)}"
+    finally:
+        cur.close()
+        return_connection(conn)
+
+
+# ========================================
+# COINGECKO APIs
+# ========================================
+
+def get_all_coingecko_apis() -> List[Dict]:
+    """Retorna todas as APIs CoinGecko cadastradas."""
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT api_id, api_name, api_key, base_url, is_active, 
+                   rate_limit, timeout, notes,
+                   created_at, updated_at
+            FROM t_api_coingecko
+            ORDER BY api_name
+            """
+        )
+        columns = [desc[0] for desc in cur.description]
+        apis = [dict(zip(columns, row)) for row in cur.fetchall()]
+        return apis
+    finally:
+        cur.close()
+        return_connection(conn)
+
+def get_active_coingecko_apis() -> List[Dict]:
+    """Retorna apenas APIs CoinGecko ativas."""
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT api_id, api_name, api_key, base_url, 
+                   rate_limit, timeout
+            FROM t_api_coingecko
+            WHERE is_active = TRUE
+            ORDER BY api_name
+            LIMIT 1
+            """
+        )
+        columns = [desc[0] for desc in cur.description]
+        apis = [dict(zip(columns, row)) for row in cur.fetchall()]
+        return apis
+    finally:
+        cur.close()
+        return_connection(conn)
+
+def get_coingecko_api_by_name(api_name: str) -> Optional[Dict]:
+    """Retorna configuração de uma API CoinGecko específica pelo nome."""
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT api_id, api_name, api_key, base_url, is_active, 
+                   rate_limit, timeout, notes
+            FROM t_api_coingecko
+            WHERE api_name = %s
+            """,
+            (api_name,),
+        )
+        row = cur.fetchone()
+        if row:
+            columns = [desc[0] for desc in cur.description]
+            return dict(zip(columns, row))
+        return None
+    finally:
+        cur.close()
+        return_connection(conn)
+
+def create_coingecko_api(
+    api_name: str,
+    api_key: Optional[str] = None,
+    base_url: str = 'https://api.coingecko.com/api/v3',
+    is_active: bool = True,
+    rate_limit: Optional[int] = 10,
+    timeout: int = 15,
+    notes: Optional[str] = None
+) -> Tuple[bool, str]:
+    """
+    Cria nova configuração de API CoinGecko.
+    
+    Returns:
+        Tuple[bool, str]: (sucesso, mensagem)
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            INSERT INTO t_api_coingecko 
+            (api_name, api_key, base_url, is_active, rate_limit, timeout, notes)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING api_id
+            """,
+            (api_name, api_key, base_url, is_active, rate_limit, timeout, notes),
+        )
+        api_id = cur.fetchone()[0]
+        conn.commit()
+        return True, f"API CoinGecko '{api_name}' criada com sucesso (ID: {api_id})"
+    except psycopg2.IntegrityError:
+        conn.rollback()
+        return False, f"API CoinGecko '{api_name}' já existe"
+    except Exception as e:
+        conn.rollback()
+        return False, f"Erro ao criar API CoinGecko: {str(e)}"
+    finally:
+        cur.close()
+        return_connection(conn)
+
+def update_coingecko_api(
+    api_id: int,
+    api_name: Optional[str] = None,
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
+    is_active: Optional[bool] = None,
+    rate_limit: Optional[int] = None,
+    timeout: Optional[int] = None,
+    notes: Optional[str] = None
+) -> Tuple[bool, str]:
+    """
+    Atualiza configuração de API CoinGecko.
+    Apenas os campos fornecidos são atualizados.
+    
+    Returns:
+        Tuple[bool, str]: (sucesso, mensagem)
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+    
+    # Construir query dinâmica apenas com campos fornecidos
+    updates = []
+    params = []
+    
+    if api_name is not None:
+        updates.append("api_name = %s")
+        params.append(api_name)
+    if api_key is not None:
+        updates.append("api_key = %s")
+        params.append(api_key)
+    if base_url is not None:
+        updates.append("base_url = %s")
+        params.append(base_url)
+    if is_active is not None:
+        updates.append("is_active = %s")
+        params.append(is_active)
+    if rate_limit is not None:
+        updates.append("rate_limit = %s")
+        params.append(rate_limit)
+    if timeout is not None:
+        updates.append("timeout = %s")
+        params.append(timeout)
+    if notes is not None:
+        updates.append("notes = %s")
+        params.append(notes)
+    
+    if not updates:
+        return False, "Nenhum campo para atualizar"
+    
+    params.append(api_id)
+    query = f"""
+        UPDATE t_api_coingecko
+        SET {', '.join(updates)}, updated_at = CURRENT_TIMESTAMP
+        WHERE api_id = %s
+    """
+    
+    try:
+        cur.execute(query, params)
+        if cur.rowcount == 0:
+            conn.rollback()
+            return False, f"API CoinGecko com ID {api_id} não encontrada"
+        conn.commit()
+        return True, "API CoinGecko atualizada com sucesso"
+    except Exception as e:
+        conn.rollback()
+        return False, f"Erro ao atualizar API CoinGecko: {str(e)}"
+    finally:
+        cur.close()
+        return_connection(conn)
+
+def delete_coingecko_api(api_id: int) -> Tuple[bool, str]:
+    """
+    Remove configuração de API CoinGecko.
+    
+    Returns:
+        Tuple[bool, str]: (sucesso, mensagem)
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("DELETE FROM t_api_coingecko WHERE api_id = %s", (api_id,))
+        if cur.rowcount == 0:
+            conn.rollback()
+            return False, f"API CoinGecko com ID {api_id} não encontrada"
+        conn.commit()
+        return True, "API CoinGecko removida com sucesso"
+    except Exception as e:
+        conn.rollback()
+        return False, f"Erro ao remover API CoinGecko: {str(e)}"
+    finally:
+        cur.close()
+        return_connection(conn)
+
+def toggle_coingecko_api_status(api_id: int) -> Tuple[bool, str]:
+    """
+    Ativa/Desativa uma API CoinGecko.
+    
+    Returns:
+        Tuple[bool, str]: (sucesso, mensagem)
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            UPDATE t_api_coingecko
+            SET is_active = NOT is_active, updated_at = CURRENT_TIMESTAMP
+            WHERE api_id = %s
+            RETURNING is_active
+            """,
+            (api_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            conn.rollback()
+            return False, f"API CoinGecko com ID {api_id} não encontrada"
+        new_status = row[0]
+        conn.commit()
+        status_text = "ativada" if new_status else "desativada"
+        return True, f"API CoinGecko {status_text} com sucesso"
     except Exception as e:
         conn.rollback()
         return False, f"Erro ao alterar status: {str(e)}"

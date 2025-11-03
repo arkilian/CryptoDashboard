@@ -150,6 +150,10 @@ def show():
     with c2:
         end_date = st.date_input("Data final", max_dt or date.today(), min_value=min_dt or date(2020,1,1), max_value=max_dt or date.today())
 
+    # Aviso se histórico de transações sincronizado não cobre o início do período
+    if not df_dates.empty and start_date < df_dates["dt"].min():
+        st.caption("ℹ️ O histórico no DB começa em %s. Para cobrir datas anteriores, aumente as páginas na sincronização e volte a sincronizar." % df_dates["dt"].min().strftime("%Y-%m-%d"))
+
     # Deltas por dia (ADA lovelace + tokens raw) apenas das wallets selecionadas
     df_deltas = pd.read_sql(
         """
@@ -231,6 +235,19 @@ def show():
         # Evitar chamadas excessivas à CoinGecko: só usa snapshots já existentes em BD
         prices_cache[d] = get_historical_prices_by_symbol(symbols, d, allow_api_fallback=False) if symbols else {}
 
+    # Preparar forward-fill de preços históricos por símbolo para datas sem snapshot
+    last_price_by_symbol = {s: None for s in symbols}
+
+    # Opcional: indicar se há falta de preços para alguns símbolos/datas
+    if symbols:
+        missing_info = []
+        for s in symbols:
+            miss = sum(1 for d in all_dates if prices_cache.get(d, {}).get(s) is None)
+            if miss > 0:
+                missing_info.append(f"{s}: {miss} dia(s)")
+        if missing_info:
+            st.caption("⚠️ Preços em falta (usar snapshots em BD): " + ", ".join(missing_info))
+
     # Série de saldo (EUR) ao longo do tempo (caixa + valor cripto)
     df_dates = pd.DataFrame({"date": all_dates})
     df_plot = df_dates.copy()
@@ -262,8 +279,13 @@ def show():
             for sym, qty in row.items():
                 if sym == "EUR":
                     continue
-                price = prices.get(sym)
-                if price:
+                # Atualizar last seen price se houver preço neste dia
+                p_today = prices.get(sym)
+                if p_today is not None:
+                    last_price_by_symbol[sym] = p_today
+                # Usar preço do dia ou último conhecido
+                price = p_today if p_today is not None else last_price_by_symbol.get(sym)
+                if price is not None:
                     holdings_value += float(qty) * float(price)
 
         saldo_series.append(cash_from_cap + holdings_value)

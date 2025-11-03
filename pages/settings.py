@@ -14,9 +14,9 @@ def show_settings_page():
         st.stop()
 
     # Sub-menus
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
         "💰 Taxas", "🪙 Ativos", "🏦 Exchanges", "🏦 Bancos", 
-        "🔌 APIs Cardano", "👛 Wallets", "📸 Snapshots", "🏷️ Tags"
+        "🔌 APIs Cardano", "🦎 APIs CoinGecko", "👛 Wallets", "📸 Snapshots", "🏷️ Tags"
     ])
 
     # ========================================
@@ -315,15 +315,21 @@ def show_settings_page():
         show_api_cardano_settings()
 
     # ========================================
-    # TAB 6: WALLETS
+    # TAB 6: APIs COINGECKO
     # ========================================
     with tab6:
+        show_api_coingecko_settings()
+
+    # ========================================
+    # TAB 7: WALLETS
+    # ========================================
+    with tab7:
         show_wallets_settings()
 
     # ========================================
-    # TAB 7: SNAPSHOTS DE PREÇOS
+    # TAB 8: SNAPSHOTS DE PREÇOS
     # ========================================
-    with tab7:
+    with tab8:
         from datetime import date, timedelta
         from services.snapshots import populate_snapshots_for_period, update_latest_prices
         
@@ -444,7 +450,7 @@ def show_settings_page():
     # ========================================
     # TAB 8: GESTÃO DE TAGS
     # ========================================
-    with tab8:
+    with tab9:
         st.subheader("🏷️ Gestão de Tags (Estratégia)")
         try:
             ensure_default_tags(engine)
@@ -935,6 +941,204 @@ def show_api_cardano_settings():
                     
                     if cancel_btn:
                         st.session_state.pop('editing_api', None)
+                        st.rerun()
+
+
+def show_api_coingecko_settings():
+    """Tab de configuração de APIs CoinGecko."""
+    from database.api_config import (
+        get_all_coingecko_apis, create_coingecko_api, update_coingecko_api, 
+        delete_coingecko_api, toggle_coingecko_api_status
+    )
+    
+    st.subheader("🦎 Gestão de APIs CoinGecko")
+    
+    st.info("""
+    💡 **CoinGecko API Key (opcional)**
+    - Plano **Free**: 10-50 chamadas/minuto sem API key
+    - Plano **Pro/Enterprise**: até 500 chamadas/minuto com API key
+    
+    Configure o `rate_limit` de acordo com o seu plano para evitar 429 errors.
+    """)
+    
+    # Listar APIs
+    apis = get_all_coingecko_apis()
+    
+    if apis:
+        df_apis = pd.DataFrame(apis)
+        
+        display_cols = ['api_id', 'api_name', 'base_url', 'is_active', 'rate_limit', 'timeout']
+        display_df = df_apis[display_cols].copy()
+        display_df['is_active'] = display_df['is_active'].map({True: '✅', False: '❌'})
+        display_df['api_key'] = df_apis['api_key'].apply(lambda x: '🔑 Sim' if x else '—')
+        
+        display_df = display_df.rename(columns={
+            'api_id': 'ID',
+            'api_name': 'API',
+            'base_url': 'URL Base',
+            'is_active': 'Ativo',
+            'rate_limit': 'Rate Limit (req/min)',
+            'timeout': 'Timeout (s)',
+            'api_key': 'API Key'
+        })
+        
+        # Reorder columns
+        display_df = display_df[['ID', 'API', 'API Key', 'URL Base', 'Ativo', 'Rate Limit (req/min)', 'Timeout (s)']]
+        
+        st.dataframe(display_df.drop('ID', axis=1), use_container_width=True, hide_index=True)
+    else:
+        st.info("Nenhuma API CoinGecko configurada")
+    
+    st.divider()
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### ➕ Adicionar Nova API")
+        
+        with st.form("add_coingecko_api_form"):
+            api_name = st.text_input("Nome da API *", placeholder="Ex: CoinGecko Pro")
+            api_key = st.text_input(
+                "API Key (opcional para plano Free)", 
+                type="password", 
+                placeholder="Deixe vazio para usar API pública",
+                help="Necessária apenas para planos Pro/Enterprise"
+            )
+            base_url = st.text_input(
+                "URL Base *", 
+                value="https://api.coingecko.com/api/v3",
+                placeholder="https://api.coingecko.com/api/v3"
+            )
+            
+            col_a, col_b = st.columns(2)
+            with col_a:
+                rate_limit = st.number_input(
+                    "Rate Limit (req/min)", 
+                    min_value=1, 
+                    value=10,
+                    help="Free: 10-50 | Pro: 500+"
+                )
+            with col_b:
+                timeout = st.number_input("Timeout (segundos)", min_value=5, value=15)
+            
+            is_active = st.checkbox("API Ativa", value=True)
+            notes = st.text_area("Notas", placeholder="Ex: Plano Free, Plano Pro, etc.")
+            
+            submitted = st.form_submit_button("💾 Adicionar API", use_container_width=True)
+            
+            if submitted:
+                if not api_name or not base_url:
+                    st.error("Nome e URL são obrigatórios")
+                else:
+                    success, msg = create_coingecko_api(
+                        api_name=api_name,
+                        api_key=api_key if api_key else None,
+                        base_url=base_url,
+                        is_active=is_active,
+                        rate_limit=rate_limit,
+                        timeout=timeout,
+                        notes=notes if notes else None
+                    )
+                    
+                    if success:
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
+    
+    with col2:
+        st.markdown("### ✏️ Editar/Remover API")
+        
+        if apis:
+            api_options = [(f"{a['api_id']} - {a['api_name']}", a['api_id']) for a in apis]
+            selected_api = st.selectbox(
+                "Selecionar API",
+                options=api_options,
+                format_func=lambda x: x[0],
+                key="coingecko_apis_select_edit"
+            )
+            api_id = selected_api[1]
+            
+            col_btn1, col_btn2, col_btn3 = st.columns(3)
+            
+            with col_btn1:
+                if st.button("🔄 Ativar/Desativar", key=f"btn_coingecko_api_toggle_{api_id}", use_container_width=True):
+                    success, msg = toggle_coingecko_api_status(api_id)
+                    if success:
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
+            
+            with col_btn2:
+                if st.button("✏️ Editar", key="btn_edit_coingecko_api", use_container_width=True):
+                    st.session_state['editing_coingecko_api'] = api_id
+            
+            with col_btn3:
+                if st.button("🗑️ Remover", key=f"btn_coingecko_api_delete_{api_id}", type="secondary", use_container_width=True):
+                    if st.session_state.get('confirm_delete_coingecko_api') == api_id:
+                        success, msg = delete_coingecko_api(api_id)
+                        if success:
+                            st.success(msg)
+                            st.session_state.pop('confirm_delete_coingecko_api', None)
+                            st.rerun()
+                        else:
+                            st.error(msg)
+                    else:
+                        st.session_state['confirm_delete_coingecko_api'] = api_id
+                        st.warning("⚠️ Clique novamente para confirmar remoção")
+            
+            # Formulário de edição
+            if st.session_state.get('editing_coingecko_api') == api_id:
+                api_data = next((a for a in apis if a['api_id'] == api_id), None)
+                
+                with st.form("edit_coingecko_api_form"):
+                    st.markdown("**Editar API CoinGecko**")
+                    
+                    edit_name = st.text_input("Nome", value=api_data['api_name'])
+                    edit_key = st.text_input(
+                        "API Key (deixe vazio para manter atual)", 
+                        type="password",
+                        placeholder="••••••••",
+                        help="Deixe vazio para não alterar a API key existente"
+                    )
+                    edit_url = st.text_input("URL", value=api_data['base_url'])
+                    edit_rate_limit = st.number_input(
+                        "Rate Limit (req/min)", 
+                        min_value=1, 
+                        value=api_data.get('rate_limit', 10)
+                    )
+                    edit_timeout = st.number_input(
+                        "Timeout", 
+                        min_value=5, 
+                        value=api_data.get('timeout', 15)
+                    )
+                    
+                    col_save, col_cancel = st.columns(2)
+                    with col_save:
+                        save_btn = st.form_submit_button("💾 Guardar", use_container_width=True)
+                    with col_cancel:
+                        cancel_btn = st.form_submit_button("❌ Cancelar", use_container_width=True)
+                    
+                    if save_btn:
+                        success, msg = update_coingecko_api(
+                            api_id=api_id,
+                            api_name=edit_name,
+                            api_key=edit_key if edit_key else None,
+                            base_url=edit_url,
+                            rate_limit=edit_rate_limit,
+                            timeout=edit_timeout
+                        )
+                        
+                        if success:
+                            st.success(msg)
+                            st.session_state.pop('editing_coingecko_api', None)
+                            st.rerun()
+                        else:
+                            st.error(msg)
+                    
+                    if cancel_btn:
+                        st.session_state.pop('editing_coingecko_api', None)
                         st.rerun()
 
 

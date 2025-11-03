@@ -262,10 +262,15 @@ def show_settings_page():
                 if st.button("Guardar alterações", key="save_acct_cats"):
                     try:
                         with engine.begin() as conn:
-                            for _, row in edited.iterrows():
+                            # Optimized: Use executemany for bulk updates instead of iterrows()
+                            updates = [
+                                {"cat": (row.get("Categoria") or None), "id": int(row["account_id"])}
+                                for row in edited.to_dict('records')
+                            ]
+                            if updates:
                                 conn.execute(
                                     text("UPDATE t_exchange_accounts SET account_category = :cat WHERE account_id = :id"),
-                                    {"cat": (row.get("Categoria") or None), "id": int(row["account_id"])}
+                                    updates
                                 )
                         st.success("✅ Categorias de contas atualizadas!")
                         st.rerun()
@@ -492,10 +497,15 @@ def show_settings_page():
                 if st.button("Guardar alterações", key="btn_save_tags"):
                     try:
                         with engine.begin() as conn:
-                            for _, row in edited.iterrows():
+                            # Optimized: Use executemany for bulk updates instead of iterrows()
+                            updates = [
+                                {"l": row.get("Etiqueta") or row.get("Código"), "a": bool(row.get("Ativa")), "id": int(row["tag_id"])}
+                                for row in edited.to_dict('records')
+                            ]
+                            if updates:
                                 conn.execute(
                                     text("UPDATE t_tags SET tag_label = :l, active = :a WHERE tag_id = :id"),
-                                    {"l": row.get("Etiqueta") or row.get("Código"), "a": bool(row.get("Ativa")), "id": int(row["tag_id"])},
+                                    updates
                                 )
                         st.success("✅ Tags atualizadas!")
                         st.rerun()
@@ -504,9 +514,10 @@ def show_settings_page():
             with colB:
                 # Remoção segura: apenas se não houver uso na tabela de relação
                 # UI mais amigável: selecionar a tag por etiqueta/código
+                # Optimized: Use to_dict() instead of iterrows()
                 tag_options = [
                     (int(row["tag_id"]), f"{row['tag_id']} - {row['tag_label']} ({row['tag_code']})")
-                    for _, row in df_tags_edit.iterrows()
+                    for row in df_tags_edit.to_dict('records')
                 ]
                 if tag_options:
                     option_labels = [lbl for _, lbl in tag_options]

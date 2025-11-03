@@ -217,7 +217,9 @@ def show():
                     params=(int(exchange_id),)
                 )
                 if not df_accounts.empty:
-                    acc_map = {f"{row['name']} ({row['account_category'] or '—'})": int(row['account_id']) for _, row in df_accounts.iterrows()}
+                    # Optimized: Use pandas vectorized operations instead of iterrows()
+                    df_accounts['label'] = df_accounts['name'] + ' (' + df_accounts['account_category'].fillna('—') + ')'
+                    acc_map = dict(zip(df_accounts['label'], df_accounts['account_id'].astype(int)))
                     acc_map["Não especificar"] = None
                     selected_acc = st.selectbox("Conta", list(acc_map.keys()))
                     account_id = acc_map[selected_acc]
@@ -316,11 +318,14 @@ def show():
             engine
         )
         with colc1:
-            account_filter_options = [f"{row['exchange']} - {row['account']}" for _, row in df_all_accounts.iterrows()]
+            # Optimized: Use vectorized string concatenation instead of iterrows()
+            account_filter_options = (df_all_accounts['exchange'] + ' - ' + df_all_accounts['account']).tolist()
             selected_accounts_labels = st.multiselect("Contas", options=account_filter_options, key="tx_accounts_filter")
             selected_account_ids = set()
             if selected_accounts_labels:
-                label_to_id = {f"{row['exchange']} - {row['account']}": int(row['account_id']) for _, row in df_all_accounts.iterrows()}
+                # Optimized: Create lookup dict using pandas to_dict() instead of iterrows()
+                df_all_accounts['label'] = df_all_accounts['exchange'] + ' - ' + df_all_accounts['account']
+                label_to_id = dict(zip(df_all_accounts['label'], df_all_accounts['account_id'].astype(int)))
                 selected_account_ids = {label_to_id[l] for l in selected_accounts_labels}
         with colc2:
             categories = sorted(list(set(df_all_accounts['category'].dropna().tolist() + [""])) )

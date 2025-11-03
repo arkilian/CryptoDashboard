@@ -94,13 +94,13 @@ def render_transaction_form(engine):
     )
     df_exchanges = pd.read_sql("SELECT exchange_id, name FROM t_exchanges ORDER BY name", engine)
     
-    # Assets map
-    asset_options = {f"{row['symbol']} - {row['name']}": int(row['asset_id']) 
-                     for _, row in df_assets.iterrows()}
+    # Assets map - Optimized: Use pandas to_dict() instead of iterrows()
+    df_assets['label'] = df_assets['symbol'] + ' - ' + df_assets['name']
+    asset_options = dict(zip(df_assets['label'], df_assets['asset_id'].astype(int)))
     
-    # Accounts map
-    account_options = {f"{row['exchange_name']} → {row['account_name']} ({row['category'] or '—'})": int(row['account_id']) 
-                       for _, row in df_accounts.iterrows()}
+    # Accounts map - Optimized: Use pandas to_dict() instead of iterrows()
+    df_accounts['label'] = df_accounts['exchange_name'] + ' → ' + df_accounts['account_name'] + ' (' + df_accounts['category'].fillna('—') + ')'
+    account_options = dict(zip(df_accounts['label'], df_accounts['account_id'].astype(int)))
     
     # Render campos conforme tipo
     if selected_type in ['deposit', 'withdrawal']:
@@ -352,7 +352,8 @@ def _render_buy_sell_fields(tx_type, form_data, asset_options, account_options, 
     col1, col2 = st.columns(2)
     
     with col1:
-        exchange_opts = {row['name']: int(row['exchange_id']) for _, row in df_exchanges.iterrows()}
+        # Optimized: Use pandas to_dict() instead of iterrows()
+        exchange_opts = dict(zip(df_exchanges['name'], df_exchanges['exchange_id'].astype(int)))
         exchange_opts["Não especificar"] = None
         exchange = st.selectbox("Exchange", list(exchange_opts.keys()), key="tx_v2_exch")
         form_data['exchange_id'] = exchange_opts[exchange]

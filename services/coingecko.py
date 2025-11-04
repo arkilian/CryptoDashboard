@@ -445,8 +445,70 @@ def get_historical_price_by_id(coin_id: str, target_date: date, vs_currency: str
         market_data = data.get("market_data", {})
         current_price = market_data.get("current_price", {})
         value = current_price.get(vs_currency)
-        return float(value) if value is not None else None
-    except Exception:
+        if value is not None:
+            return float(value)
+        # Fallback: tentar via market_chart quando não há preço direto para a data/moeda
+        logger.info(
+            f"ℹ️ Sem price em history para id={coin_id}, data={date_str}, vs={vs_currency}. A tentar market_chart..."
+        )
+        return _get_price_from_market_chart_by_date(coin_id, target_date, vs_currency)
+    except Exception as e:
+        logger.warning(f"Falha a interpretar /history para {coin_id} em {date_str}: {e}")
+        # Último recurso: tentar market_chart
+        return _get_price_from_market_chart_by_date(coin_id, target_date, vs_currency)
+
+
+def _get_price_from_market_chart_by_date(coin_id: str, target_date: date, vs_currency: str = "eur") -> Optional[float]:
+    """Fallback para obter preço do dia usando /coins/{id}/market_chart.
+
+    Estratégia:
+    - Calcula days = min(90, days_ago+1)
+    - Busca série prices e filtra amostras do próprio dia (UTC)
+    - Se existirem várias amostras, retorna média do dia
+    - Caso não haja amostras do dia, retorna o ponto mais próximo ao meio-dia UTC
+    """
+    try:
+        days_ago = (date.today() - target_date).days
+        if days_ago < 0:
+            return None
+        days = max(1, min(90, days_ago + 1))
+        svc = CoinGeckoService()
+        mc = svc.get_market_chart(coin_id, period=f"{days}d", vs_currency=vs_currency)
+        prices = mc.get("prices") if isinstance(mc, dict) else None
+        if not prices:
+            return None
+
+        # Normalizar timestamps (ms) -> date e filtrar pelo target_date
+        from datetime import datetime as _dt, timezone as _tz
+        day_points = []
+        target_midday = _dt.combine(target_date, _dt.min.time()).replace(tzinfo=_tz.utc).timestamp() + 12*3600
+        for ts_ms, val in prices:
+            try:
+                d = _dt.utcfromtimestamp(ts_ms / 1000.0).date()
+                if d == target_date:
+                    day_points.append(float(val))
+            except Exception:
+                continue
+
+        if day_points:
+            avg = sum(day_points) / len(day_points)
+            return float(avg)
+
+        # Se não há pontos no próprio dia, pegar o mais próximo do meio-dia do dia alvo
+        closest = None
+        closest_dt_diff = None
+        for ts_ms, val in prices:
+            try:
+                t = ts_ms / 1000.0
+                diff = abs(t - target_midday)
+                if closest is None or diff < closest_dt_diff:
+                    closest = float(val)
+                    closest_dt_diff = diff
+            except Exception:
+                continue
+        return closest
+    except Exception as e:
+        logger.warning(f"Falha no fallback market_chart para {coin_id} em {target_date}: {e}")
         return None
 
 

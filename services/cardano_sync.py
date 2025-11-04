@@ -301,6 +301,9 @@ def sync_wallet_transactions(wallet_id: int, bech32_address: str, max_pages: int
         # After commit, trigger snapshot filling in background to avoid blocking UI
         try:
             if symbols_seen and min_tx_date and max_tx_date:
+                logger.info(
+                    f"📊 Sync concluído: {len(symbols_seen)} símbolos detectados, datas TX: {min_tx_date} até {max_tx_date}"
+                )
                 started = start_ensure_assets_and_snapshots_async(sorted(symbols_seen), min_tx_date, max_tx_date)
                 if started:
                     logger.info(
@@ -322,10 +325,25 @@ def sync_wallet_transactions(wallet_id: int, bech32_address: str, max_pages: int
         return_connection(conn)
 
 
-def sync_all_cardano_wallets_for_user(user_id: Optional[int] = None, max_pages: int = 5) -> Dict:
-    """Sync all active Cardano wallets. If user_id is provided, filter by user."""
+def sync_all_cardano_wallets_for_user(user_id: Optional[int] = None, max_pages: int = 5, wallet_ids: Optional[List[int]] = None) -> Dict:
+    """Sync active Cardano wallets.
+    
+    Args:
+        user_id: Filter by user (optional)
+        max_pages: Number of recent transaction pages to fetch
+        wallet_ids: Optional list of specific wallet_ids to sync. If provided, only these wallets are synced.
+    
+    Returns:
+        Dict with sync results: wallets count, synced count, io_rows, errors
+    """
     wallets = get_active_wallets(user_id)
     wallets = [w for w in wallets if (w.get("blockchain") or "").lower() == "cardano"]
+    
+    # Filter by specific wallet_ids if provided
+    if wallet_ids is not None:
+        wallets = [w for w in wallets if int(w.get("wallet_id")) in wallet_ids]
+        logger.info(f"🎯 Filtro aplicado: sincronizando apenas {len(wallets)} wallet(s) selecionada(s)")
+    
     if not wallets:
         return {"wallets": 0, "synced": 0, "io_rows": 0}
 

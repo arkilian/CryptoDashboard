@@ -116,10 +116,7 @@ def get_historical_price(asset_id: int, target_date: date) -> Optional[float]:
     if not df.empty:
         return float(df.iloc[0]['price_eur'])
     
-    # Se não encontrar, buscar do CoinGecko e guardar
-    logger.info(f"Preço não encontrado localmente para asset_id={asset_id} em {target_date}. Buscando do CoinGecko...")
-    
-    # Buscar symbol e coingecko_id
+    # Buscar symbol e coingecko_id ANTES de fazer logging ou chamada API
     df_asset = pd.read_sql(
         "SELECT symbol, coingecko_id, is_stablecoin FROM t_assets WHERE asset_id = %s",
         engine,
@@ -130,9 +127,14 @@ def get_historical_price(asset_id: int, target_date: date) -> Optional[float]:
         logger.warning(f"Asset {asset_id} não encontrado")
         return None
     
+    symbol = df_asset.iloc[0]['symbol']
+    coingecko_id = df_asset.iloc[0]['coingecko_id']
+    
+    # Se não encontrar, buscar do CoinGecko e guardar
+    logger.info(f"💰 Preço não encontrado localmente para {symbol} (asset_id={asset_id}) em {target_date}. Buscando do CoinGecko...")
+    
     # Se não tem coingecko_id, verificar se é EUR (moeda FIAT base)
-    if not df_asset.iloc[0]['coingecko_id']:
-        symbol = df_asset.iloc[0]['symbol']
+    if not coingecko_id:
         
         # Apenas EUR (moeda base) tem preço fixo de 1.0
         if symbol == 'EUR':
@@ -358,7 +360,7 @@ def populate_snapshots_for_period(start_date: date, end_date: date, asset_ids: O
         logger.warning("Nenhum ativo com coingecko_id configurado")
         return
     
-    logger.info(f"Preenchendo snapshots de {start_date} a {end_date} para {len(asset_ids)} ativos")
+    logger.info(f"📅 populate_snapshots_for_period: {start_date} até {end_date} para {len(asset_ids)} ativos")
     
     # Iterar por cada dia
     current = start_date

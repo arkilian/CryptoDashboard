@@ -93,16 +93,19 @@ def show():
         st.error("🚫 Esquema Cardano v3 em falta. Aplique a migration: database/migrations/20251103_cardano_tx_v3.sql")
 
     if do_sync and api_ok and schema_ok:
-        with st.spinner("A sincronizar wallets (Cardano)…"):
-            res = sync_all_cardano_wallets_for_user(user_id=user_id, max_pages=max_pages)
-        st.success(f"Sync concluído: {res.get('synced', 0)}/{res.get('wallets', 0)} wallets, {res.get('io_rows', 0)} linhas IO no DB")
-        errs = res.get('errors') or []
-        for err in errs[:5]:
-            st.warning(f"Wallet {err.get('wallet_id')} ({(err.get('address') or '')[:12]}…): {err.get('error')}")
-        if len(errs) > 5:
-            st.info(f"…e mais {len(errs)-5} erro(s)")
-        # Informar que snapshots de preços serão processados em background
-        st.caption("🧵 Os snapshots de preços (CoinGecko) serão preenchidos em background para não bloquear a UI. Pode continuar a usar a página.")
+        if not selected_wallet_ids:
+            st.warning("⚠️ Selecione pelo menos uma wallet para sincronizar")
+        else:
+            with st.spinner("A sincronizar wallets (Cardano)…"):
+                res = sync_all_cardano_wallets_for_user(user_id=user_id, max_pages=max_pages, wallet_ids=selected_wallet_ids)
+            st.success(f"Sync concluído: {res.get('synced', 0)}/{res.get('wallets', 0)} wallets, {res.get('io_rows', 0)} linhas IO no DB")
+            errs = res.get('errors') or []
+            for err in errs[:5]:
+                st.warning(f"Wallet {err.get('wallet_id')} ({(err.get('address') or '')[:12]}…): {err.get('error')}")
+            if len(errs) > 5:
+                st.info(f"…e mais {len(errs)-5} erro(s)")
+            # Informar que snapshots de preços serão processados em background
+            st.caption("🧵 Os snapshots de preços (CoinGecko) serão preenchidos em background para não bloquear a UI. Pode continuar a usar a página.")
 
     st.markdown("---")
     st.subheader("Evolução do Portfólio (DB · Cardano)")

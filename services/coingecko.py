@@ -91,17 +91,27 @@ _min_delay_between_calls = 4.0  # segundos - aumentado para evitar 429 errors
 def _get_rate_limit_delay() -> float:
     """Calculate minimum delay between API calls based on DB config.
     
-    Returns delay in seconds. Defaults to 4.0s if no config or rate_limit not set.
-    rate_limit in DB is calls per minute; we compute delay = 60 / rate_limit.
+    Returns delay in seconds. Uses EXACT value from DB: delay = 60 / rate_limit.
+    Adds only a minimal floor to avoid zero/invalid values.
     """
     config = _get_coingecko_config()
     if config and config.get('rate_limit'):
-        rate_limit = int(config['rate_limit'])
-        if rate_limit > 0:
-            # Convert rate_limit (calls per minute) to delay (seconds between calls)
-            delay = 60.0 / rate_limit
-            return max(delay, 1.0)  # Minimum 1 second between calls
-    return 4.0  # fallback
+        try:
+            rate_limit = int(config['rate_limit'])
+        except Exception:
+            rate_limit = None
+        if rate_limit and rate_limit > 0:
+            # Exact delay based on DB value
+            return max(60.0 / rate_limit, 0.5)
+    # Fallback when config missing
+    return 2.0
+
+
+def invalidate_coingecko_config_cache():
+    """Invalidate cached CoinGecko config so new DB values apply immediately."""
+    global _coingecko_config_cache
+    _coingecko_config_cache = None
+    logger.info("🧹 CoinGecko config cache invalidated")
 
 
 def _get_headers() -> Dict[str, str]:
@@ -149,17 +159,26 @@ def _get_base_url() -> str:
     """Get base URL from DB config or fallback to public API.
     
     Note: CoinGecko Pro API uses https://pro-api.coingecko.com/api/v3
-          Free API uses https://api.coingecko.com/api/v3
+          Demo/Free API uses https://api.coingecko.com/api/v3
     """
     config = _get_coingecko_config()
     if config:
         # Se tem API key configurada, verificar se URL base está correta
         if config.get('api_key') and config.get('base_url'):
             base_url = config['base_url']
-            # Se configuraram api_key mas ainda usam URL pública, avisar
-            if 'pro-api' not in base_url and config.get('api_key'):
+            api_key = config['api_key']
+            
+            # Demo API (CG-xxx) deve usar URL pública - está correto
+            if api_key.startswith('CG-'):
+                if 'pro-api' in base_url:
+                    logger.warning(
+                        "⚠️ Demo API Key configurada mas base_url é pro-api. "
+                        "Para Demo API, use: https://api.coingecko.com/api/v3"
+                    )
+            # Pro API deve usar pro-api URL
+            elif 'pro-api' not in base_url:
                 logger.warning(
-                    "⚠️ API Key configurada mas base_url não é pro-api.coingecko.com. "
+                    "⚠️ Pro API Key configurada mas base_url não é pro-api.coingecko.com. "
                     "Para CoinGecko Pro, use: https://pro-api.coingecko.com/api/v3"
                 )
             return base_url
@@ -346,7 +365,7 @@ def _rate_limited_get(url: str, params: Optional[dict] = None, timeout: int = 15
     Returns parsed JSON dict on success, or None on failure after retries.
     """
     global _last_api_call_time
-    backoff = 3.0
+    backoff = 2.0  # Start with 2 seconds
     
     # Add API key to params if using Demo API
     if params is None:
@@ -360,22 +379,38 @@ def _rate_limited_get(url: str, params: Optional[dict] = None, timeout: int = 15
             elapsed = now - _last_api_call_time
             min_delay = _get_rate_limit_delay()
             if elapsed < min_delay:
-                time.sleep(min_delay - elapsed)
+                wait_time = min_delay - elapsed
+                if wait_time > 0.1:  # Only log if significant wait
+                    logger.debug(f"⏱️ Rate limiter: aguardando {wait_time:.2f}s")
+                time.sleep(wait_time)
 
-            # Additional backoff between retries
+            # Additional backoff between retries (exponential)
             if attempt > 0:
-                time.sleep(backoff)
+                retry_delay = backoff * (2 ** (attempt - 1))
+                logger.info(f"⏱️ Retry {attempt}: aguardando {retry_delay:.1f}s antes de tentar novamente")
+                time.sleep(retry_delay)
 
             _last_api_call_time = time.time()
             resp = requests.get(url, params=params or {}, headers=_get_headers(), timeout=timeout)
             resp.raise_for_status()
             return resp.json()
+        except requests.exceptions.HTTPError as e:
+            if hasattr(e, 'response') and e.response is not None and e.response.status_code == 429:
+                logger.warning(f"⚠️ 429 Rate Limit na tentativa {attempt + 1}/{retries}")
+                # For 429, use longer backoff
+                if attempt == retries - 1:
+                    logger.error(f"❌ Excedido limite de tentativas após 429s repetidos")
+                    return None
+                # Exponential backoff for 429s: 5s, 10s, 20s, 40s...
+                time.sleep(5 * (2 ** attempt))
+                continue
+            else:
+                logger.warning(f"Tentativa {attempt + 1}/{retries}: erro HTTP em chamada CoinGecko: {e}")
         except requests.RequestException as e:
-            logger.warning("Tentativa %d/%d: erro em chamada CoinGecko: %s", attempt + 1, retries, e)
+            logger.warning(f"Tentativa {attempt + 1}/{retries}: erro em chamada CoinGecko: {e}")
             if attempt == retries - 1:
-                logger.error("Falha após %d tentativas: %s", retries, e)
+                logger.error(f"Falha após {retries} tentativas: {e}")
                 return None
-            backoff *= 2.0
 
 
 def get_current_price_by_id(coin_id: str, vs_currency: str = "eur") -> Optional[float]:

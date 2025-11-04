@@ -950,6 +950,11 @@ def show_api_coingecko_settings():
         get_all_coingecko_apis, create_coingecko_api, update_coingecko_api, 
         delete_coingecko_api, toggle_coingecko_api_status
     )
+    # Invalidate runtime cache after changes so new DB values (e.g., rate_limit) apply immediately
+    try:
+        from services.coingecko import invalidate_coingecko_config_cache
+    except Exception:
+        invalidate_coingecko_config_cache = None
     
     st.subheader("🦎 Gestão de APIs CoinGecko")
     
@@ -1041,6 +1046,8 @@ def show_api_coingecko_settings():
                     )
                     
                     if success:
+                        if invalidate_coingecko_config_cache:
+                            invalidate_coingecko_config_cache()
                         st.success(msg)
                         st.rerun()
                     else:
@@ -1065,6 +1072,8 @@ def show_api_coingecko_settings():
                 if st.button("🔄 Ativar/Desativar", key=f"btn_coingecko_api_toggle_{api_id}", use_container_width=True):
                     success, msg = toggle_coingecko_api_status(api_id)
                     if success:
+                        if invalidate_coingecko_config_cache:
+                            invalidate_coingecko_config_cache()
                         st.success(msg)
                         st.rerun()
                     else:
@@ -1079,6 +1088,8 @@ def show_api_coingecko_settings():
                     if st.session_state.get('confirm_delete_coingecko_api') == api_id:
                         success, msg = delete_coingecko_api(api_id)
                         if success:
+                            if invalidate_coingecko_config_cache:
+                                invalidate_coingecko_config_cache()
                             st.success(msg)
                             st.session_state.pop('confirm_delete_coingecko_api', None)
                             st.rerun()
@@ -1131,6 +1142,8 @@ def show_api_coingecko_settings():
                         )
                         
                         if success:
+                            if invalidate_coingecko_config_cache:
+                                invalidate_coingecko_config_cache()
                             st.success(msg)
                             st.session_state.pop('editing_coingecko_api', None)
                             st.rerun()

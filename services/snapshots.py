@@ -357,10 +357,29 @@ def populate_snapshots_for_period(start_date: date, end_date: date, asset_ids: O
     
     # Iterar por cada dia
     current = start_date
+    day_count = 0
+    total_days = (end_date - start_date).days + 1
+    
     while current <= end_date:
-        logger.info(f"Processando {current}...")
-        for asset_id in asset_ids:
-            get_historical_price(asset_id, current)
+        day_count += 1
+        logger.info(f"Processando {current} ({day_count}/{total_days})...")
+        
+        # Process assets in smaller batches to avoid overwhelming API
+        batch_size = 5  # Reduced from processing all at once
+        for i in range(0, len(asset_ids), batch_size):
+            batch = asset_ids[i:i+batch_size]
+            logger.info(f"  📦 Lote {i//batch_size + 1}/{(len(asset_ids) + batch_size - 1)//batch_size} ({len(batch)} ativos)")
+            
+            for asset_id in batch:
+                try:
+                    get_historical_price(asset_id, current)
+                except Exception as e:
+                    logger.warning(f"  ⚠️ Erro ao buscar preço para asset_id={asset_id}: {e}")
+            
+            # Small delay between batches to avoid rate limits
+            if i + batch_size < len(asset_ids):
+                time.sleep(0.5)  # 500ms between batches
+        
         current += timedelta(days=1)
     
     logger.info("Preenchimento de snapshots concluído")

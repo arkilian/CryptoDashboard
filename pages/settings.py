@@ -943,6 +943,67 @@ def show_api_cardano_settings():
                         st.session_state.pop('editing_api', None)
                         st.rerun()
 
+    st.divider()
+    st.markdown("### 🔁 Resync de Wallets Cardano")
+    from sqlalchemy import text as _sql_text
+    from database.wallets import get_active_wallets
+    from services.cardano_sync import sync_all_cardano_wallets_for_user
+
+    # Listar apenas wallets Cardano ativas
+    wallets = [w for w in get_active_wallets(st.session_state.get("user_id")) if (w.get("blockchain") or "").lower() == "cardano"]
+    if wallets:
+        # Seleção de wallets
+        options = {f"{w['wallet_id']} - {w['wallet_name']}": int(w['wallet_id']) for w in wallets}
+        selected_labels = st.multiselect("Selecionar wallet(s) para resync", list(options.keys()), placeholder="Escolha uma ou mais wallets")
+        selected_ids = [options[lbl] for lbl in selected_labels]
+
+        col_a, col_b, col_c = st.columns([1,1,1])
+        with col_a:
+            max_pages = st.slider("Páginas a sincronizar", min_value=1, max_value=50, value=20, help="Quantas páginas recentes buscar por wallet")
+        with col_b:
+            wipe_first = st.checkbox("Apagar transações existentes antes do sync", value=False, help="Irá remover t_cardano_transactions e respetivos IO para as wallets selecionadas e reiniciar o estado de sync")
+        with col_c:
+            show_counts = st.checkbox("Mostrar contagens após sync", value=True)
+
+        if st.button("🚀 Executar Resync", type="primary", use_container_width=True, disabled=(len(selected_ids) == 0)):
+            if not selected_ids:
+                st.warning("Selecione pelo menos uma wallet")
+            else:
+                try:
+                    with get_engine().begin() as conn:
+                        if wipe_first:
+                            conn.execute(_sql_text("DELETE FROM t_cardano_transactions WHERE wallet_id = ANY(:w)"), {"w": selected_ids})
+                            conn.execute(_sql_text("DELETE FROM t_cardano_sync_state WHERE wallet_id = ANY(:w)"), {"w": selected_ids})
+                    
+                    res = sync_all_cardano_wallets_for_user(wallet_ids=selected_ids, max_pages=int(max_pages))
+                    st.success(f"✅ Resync concluído: {res}")
+
+                    if show_counts:
+                        with get_engine().connect() as conn:
+                            rows = conn.execute(_sql_text(
+                                """
+                                SELECT wallet_id,
+                                       COUNT(*) AS tx_rows,
+                                       COUNT(DISTINCT tx_hash) AS tx_unique,
+                                       (
+                                         SELECT COUNT(*) FROM t_cardano_tx_io i WHERE i.wallet_id = t.wallet_id
+                                       ) AS io_rows
+                                FROM t_cardano_transactions t
+                                WHERE wallet_id = ANY(:w)
+                                GROUP BY wallet_id
+                                ORDER BY wallet_id
+                                """
+                            ), {"w": selected_ids}).fetchall()
+                        if rows:
+                            df = pd.DataFrame(rows, columns=["Wallet ID", "TX Rows", "TX Únicas", "IO Rows"]) 
+                            st.dataframe(df, use_container_width=True, hide_index=True)
+                        else:
+                            st.info("Sem transações após sync.")
+                except Exception as e:
+                    st.error(f"❌ Erro no resync: {e}")
+    else:
+        st.info("Não há wallets Cardano ativas para sincronizar.")
+
 
 def show_api_coingecko_settings():
     """Tab de configuração de APIs CoinGecko."""

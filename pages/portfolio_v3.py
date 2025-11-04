@@ -12,6 +12,7 @@ from database.wallets import get_active_wallets
 from services.cardano_sync import sync_all_cardano_wallets_for_user
 from database.api_config import get_active_apis
 from services.snapshots import get_historical_prices_by_symbol
+from services.cardano_api import CardanoScanAPI
 
 
 @require_auth
@@ -232,6 +233,47 @@ def show():
     else:
         cum_holdings = pd.DataFrame(index=all_dates)
 
+    # Ajuste de baseline (ADA) com saldo on-chain para as wallets selecionadas
+    # Motivo: se o histórico de transações não cobre todo o passado, a soma de deltas
+    # pode produzir quantidades negativas/irreais. Usamos o saldo atual on-chain para
+    # calcular um offset constante que reconcilia o último valor.
+    try:
+        if not cum_holdings.empty and "ADA" in list(cum_holdings.columns):
+            apis = get_active_apis()
+            api_key = apis[0].get("api_key") if apis else None
+            if api_key:
+                client = CardanoScanAPI(api_key)
+                # Somar saldos on-chain das wallets selecionadas
+                selected_addr_by_id = {int(w["wallet_id"]): w["address"] for w in wallets if int(w["wallet_id"]) in set(selected_wallet_ids)}
+                onchain_ada_total = 0.0
+                for wid, addr in selected_addr_by_id.items():
+                    bal, err = client.get_balance(addr)
+                    if bal and isinstance(bal.get("lovelace"), int):
+                        onchain_ada_total += bal["lovelace"] / 1_000_000.0
+                # ADA no DB (última data)
+                db_ada = float(cum_holdings["ADA"].iloc[-1]) if len(cum_holdings) else 0.0
+                baseline = onchain_ada_total - db_ada
+                # Aplicar deslocamento constante se diferença for significativa
+                if abs(baseline) > 1e-9:
+                    cum_holdings["ADA"] = cum_holdings.get("ADA", 0.0).astype(float) + float(baseline)
+    except Exception:
+        # Em caso de falha no explorer, continuar sem baseline (DB-only)
+        pass
+
+    # Remover símbolos residuais com posição final ~zero (ex.: tokens de ponte efémeros)
+    if not cum_holdings.empty and len(cum_holdings.columns) > 0:
+        end_positions = cum_holdings.iloc[-1]
+        keep_cols = []
+        for col in cum_holdings.columns:
+            if col == "EUR":
+                continue
+            end_abs = abs(float(end_positions.get(col, 0.0)))
+            # Manter ADA sempre; para outros, ignorar se posição final for praticamente zero
+            if col == "ADA" or end_abs >= 1e-3:
+                keep_cols.append(col)
+        # Reindex to kept columns (preserve index)
+        cum_holdings = cum_holdings[keep_cols] if keep_cols else cum_holdings.iloc[:, 0:0]
+
     # Preços históricos por data/símbolo (CoinGecko snapshots)
     symbols = [c for c in (list(cum_holdings.columns) if not cum_holdings.empty else []) if c != "EUR"]
     prices_cache = {}
@@ -318,7 +360,10 @@ def show():
         for sym, qty in last_row.items():
             if sym == 'EUR':
                 continue
+            # Usar preço de hoje; se indisponível, usar último preço conhecido no período
             p = today_prices.get(sym)
+            if not p:
+                p = last_price_by_symbol.get(sym)
             if p:
                 crypto_value_today += float(qty) * float(p)
     saldo_total = cash_balance + crypto_value_today
@@ -336,12 +381,13 @@ def show():
         for sym, qty in last_row.items():
             if sym == 'EUR':
                 continue
-            price = today_prices.get(sym) or 0
+            price = today_prices.get(sym) or last_price_by_symbol.get(sym) or 0
             value = float(qty) * float(price) if price else 0.0
             rows.append({"Ativo": sym, "Quantidade": float(qty), "Preço Atual (€)": float(price or 0), "Valor Total (€)": value})
         if rows:
             df_hold = pd.DataFrame(rows)
-            df_hold["% do Portfólio"] = (df_hold["Valor Total (€)"] / saldo_total * 100).round(2) if saldo_total else 0
+            total_nonzero = df_hold["Valor Total (€)"].sum()
+            df_hold["% do Portfólio"] = (df_hold["Valor Total (€)"] / total_nonzero * 100).round(2) if total_nonzero else 0
             st.dataframe(
                 df_hold,
                 use_container_width=True,

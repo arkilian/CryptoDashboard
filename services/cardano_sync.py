@@ -90,7 +90,7 @@ def _insert_transaction(cur, wallet_id: int, address: str, tx: Dict):
         """
         INSERT INTO t_cardano_transactions (tx_hash, wallet_id, address, block_height, tx_timestamp, status, fees_ada, raw_payload)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-        ON CONFLICT (tx_hash) DO UPDATE SET
+        ON CONFLICT (tx_hash, wallet_id) DO UPDATE SET
             block_height = EXCLUDED.block_height,
             tx_timestamp = EXCLUDED.tx_timestamp,
             status = EXCLUDED.status,

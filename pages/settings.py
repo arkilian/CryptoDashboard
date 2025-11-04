@@ -921,7 +921,7 @@ def show_api_cardano_settings():
                         save_btn = st.form_submit_button("💾 Guardar", use_container_width=True)
                     with col_cancel:
                         cancel_btn = st.form_submit_button("❌ Cancelar", use_container_width=True)
-                    
+
                     if save_btn:
                         success, msg = update_api(
                             api_id=api_id,
@@ -931,14 +931,14 @@ def show_api_cardano_settings():
                             default_address=edit_default_addr if edit_default_addr else None,
                             timeout=edit_timeout
                         )
-                        
+
                         if success:
                             st.success(msg)
                             st.session_state.pop('editing_api', None)
                             st.rerun()
                         else:
                             st.error(msg)
-                    
+
                     if cancel_btn:
                         st.session_state.pop('editing_api', None)
                         st.rerun()
@@ -1153,6 +1153,30 @@ def show_api_coingecko_settings():
                     if cancel_btn:
                         st.session_state.pop('editing_coingecko_api', None)
                         st.rerun()
+
+    # Controlo global de pedidos CoinGecko e tarefas em background
+    st.divider()
+    st.markdown("### ⏯️ Controlo de Pedidos CoinGecko")
+    try:
+        from services.coingecko import pause_coingecko_requests, resume_coingecko_requests
+        from services.snapshots import cancel_background_snapshots
+        colp, colr, colc = st.columns(3)
+        with colp:
+            if st.button("⏸️ Pausar Pedidos", use_container_width=True):
+                pause_coingecko_requests()
+                st.success("Pedidos CoinGecko pausados")
+        with colr:
+            if st.button("▶️ Retomar Pedidos", use_container_width=True):
+                resume_coingecko_requests()
+                st.success("Pedidos CoinGecko retomados")
+        with colc:
+            if st.button("⏹️ Parar Snapshots em Background", use_container_width=True):
+                if cancel_background_snapshots():
+                    st.info("Pedido de cancelamento enviado; tarefas em execução irão terminar o mais rápido possível.")
+                else:
+                    st.warning("Não foi possível sinalizar cancelamento.")
+    except Exception:
+        st.caption("ℹ️ Controles de pausa indisponíveis no momento.")
 
 
 def show_wallets_settings():

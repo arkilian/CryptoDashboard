@@ -87,6 +87,9 @@ _price_cache_ttl = 300  # 5 minutos - aumentado para reduzir chamadas API
 _last_api_call_time = 0
 _min_delay_between_calls = 4.0  # segundos - aumentado para evitar 429 errors
 
+# Global pause flag to stop any external CoinGecko calls when requested
+_coingecko_paused = False
+
 
 def _get_rate_limit_delay() -> float:
     """Calculate minimum delay between API calls based on DB config.
@@ -105,6 +108,34 @@ def _get_rate_limit_delay() -> float:
             return max(60.0 / rate_limit, 0.5)
     # Fallback when config missing
     return 2.0
+
+
+def invalidate_coingecko_config_cache():
+    """Invalidate cached CoinGecko config so new DB values apply immediately."""
+    global _coingecko_config_cache
+    _coingecko_config_cache = None
+    logger.info("🧹 CoinGecko config cache invalidated")
+
+
+def pause_coingecko_requests():
+    """Pause all outgoing CoinGecko HTTP calls."""
+    global _coingecko_paused
+    _coingecko_paused = True
+    logger.warning("⏸️ CoinGecko requests PAUSED")
+
+
+def resume_coingecko_requests():
+    """Resume outgoing CoinGecko HTTP calls."""
+    global _coingecko_paused
+    _coingecko_paused = False
+    logger.info("▶️ CoinGecko requests RESUMED")
+
+
+def _is_coingecko_enabled() -> bool:
+    """Return True if there is an active config and we are not paused."""
+    if _coingecko_paused:
+        return False
+    return _get_coingecko_config() is not None
 
 
 def invalidate_coingecko_config_cache():
@@ -259,6 +290,11 @@ def get_price_by_symbol(symbols: List[str], vs_currency: str = "eur") -> Dict[st
     if not symbols:
         return {}
 
+    # If CoinGecko is disabled/paused, return None for all
+    if not _is_coingecko_enabled():
+        logger.info("CoinGecko disabled/paused - skipping get_price_by_symbol")
+        return {s: None for s in symbols}
+
     # Criar cache key baseado nos símbolos e moeda
     cache_key = f"{'-'.join(sorted(symbols))}_{vs_currency}"
     now = time.time()
@@ -318,6 +354,10 @@ def get_price_by_symbol(symbols: List[str], vs_currency: str = "eur") -> Dict[st
             
             _last_api_call_time = time.time()  # Atualizar timestamp
             cache_timestamp = _last_api_call_time  # Capture timestamp for cache
+            # If paused mid-flight, abort before issuing request
+            if not _is_coingecko_enabled():
+                logger.info("CoinGecko disabled/paused mid-call - aborting request")
+                return {s: None for s in symbols}
             resp = requests.get(url, params=params, headers=_get_headers(), timeout=15)
             resp.raise_for_status()
             data = resp.json()
@@ -374,6 +414,9 @@ def _rate_limited_get(url: str, params: Optional[dict] = None, timeout: int = 15
     
     for attempt in range(retries):
         try:
+            if not _is_coingecko_enabled():
+                logger.info("CoinGecko disabled/paused - skipping HTTP GET")
+                return None
             # Enforce global min delay between calls (dynamic from DB config)
             now = time.time()
             elapsed = now - _last_api_call_time
@@ -391,6 +434,10 @@ def _rate_limited_get(url: str, params: Optional[dict] = None, timeout: int = 15
                 time.sleep(retry_delay)
 
             _last_api_call_time = time.time()
+            # If paused mid-flight, abort before issuing request
+            if not _is_coingecko_enabled():
+                logger.info("CoinGecko disabled/paused mid-call - aborting HTTP GET")
+                return None
             resp = requests.get(url, params=params or {}, headers=_get_headers(), timeout=timeout)
             resp.raise_for_status()
             return resp.json()

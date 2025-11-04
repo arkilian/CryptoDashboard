@@ -7,6 +7,7 @@ Este módulo permite:
 - Atualizar preços diários automaticamente
 """
 import logging
+import threading
 from datetime import date, datetime, timedelta
 from typing import List, Dict, Optional
 import pandas as pd
@@ -17,6 +18,10 @@ import time
 import requests
 
 logger = logging.getLogger(__name__)
+
+# Background control for snapshot population
+_bg_snapshots_thread: Optional[threading.Thread] = None
+_bg_stop_event: Optional[threading.Event] = None
 
 # URL base da API CoinGecko
 BASE_URL = "https://api.coingecko.com/api/v3"
@@ -360,7 +365,11 @@ def populate_snapshots_for_period(start_date: date, end_date: date, asset_ids: O
     day_count = 0
     total_days = (end_date - start_date).days + 1
     
+    global _bg_stop_event
     while current <= end_date:
+        if _bg_stop_event and _bg_stop_event.is_set():
+            logger.warning("⏹️ Snapshot population cancelled by user")
+            break
         day_count += 1
         logger.info(f"Processando {current} ({day_count}/{total_days})...")
         
@@ -371,6 +380,9 @@ def populate_snapshots_for_period(start_date: date, end_date: date, asset_ids: O
             logger.info(f"  📦 Lote {i//batch_size + 1}/{(len(asset_ids) + batch_size - 1)//batch_size} ({len(batch)} ativos)")
             
             for asset_id in batch:
+                if _bg_stop_event and _bg_stop_event.is_set():
+                    logger.warning("⏹️ Snapshot population cancelled during batch")
+                    break
                 try:
                     get_historical_price(asset_id, current)
                 except Exception as e:
@@ -507,3 +519,43 @@ def ensure_assets_and_snapshots(symbols: List[str], start_date: date, end_date: 
         populate_snapshots_for_period(start_date, end_date, asset_ids)
     except Exception as e:
         logger.warning(f"Erro ao popular snapshots para período {start_date}..{end_date}: {e}")
+
+
+def start_ensure_assets_and_snapshots_async(symbols: List[str], start_date: date, end_date: date) -> bool:
+    """Inicia o ensure_assets_and_snapshots em background para não bloquear a UI.
+
+    Retorna True se a thread foi iniciada.
+    """
+    global _bg_snapshots_thread, _bg_stop_event
+    try:
+        if not symbols or start_date is None or end_date is None:
+            return False
+
+        def _runner():
+            try:
+                logger.info(
+                    f"🚀 (BG) A garantir ativos e snapshots para {len(symbols)} símbolos entre {start_date} e {end_date}"
+                )
+                ensure_assets_and_snapshots(symbols, start_date, end_date)
+                logger.info("✅ (BG) Ativos e snapshots processados")
+            except Exception as e:
+                logger.warning(f"⚠️ (BG) Falha ao processar snapshots: {e}")
+
+        _bg_stop_event = threading.Event()
+        t = threading.Thread(target=_runner, daemon=True)
+        _bg_snapshots_thread = t
+        t.start()
+        return True
+    except Exception:
+        return False
+
+
+def cancel_background_snapshots() -> bool:
+    """Signal cancellation and attempt to stop background snapshot population."""
+    global _bg_snapshots_thread, _bg_stop_event
+    try:
+        if _bg_stop_event:
+            _bg_stop_event.set()
+        return True
+    except Exception:
+        return False

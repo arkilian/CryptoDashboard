@@ -12,7 +12,6 @@ from database.wallets import get_active_wallets
 from services.cardano_sync import sync_all_cardano_wallets_for_user
 from database.api_config import get_active_apis
 from services.snapshots import get_historical_prices_by_symbol
-from services.coingecko import get_price_by_symbol
 
 
 @require_auth
@@ -102,6 +101,8 @@ def show():
             st.warning(f"Wallet {err.get('wallet_id')} ({(err.get('address') or '')[:12]}…): {err.get('error')}")
         if len(errs) > 5:
             st.info(f"…e mais {len(errs)-5} erro(s)")
+        # Informar que snapshots de preços serão processados em background
+        st.caption("🧵 Os snapshots de preços (CoinGecko) serão preenchidos em background para não bloquear a UI. Pode continuar a usar a página.")
 
     st.markdown("---")
     st.subheader("Evolução do Portfólio (DB · Cardano)")
@@ -306,8 +307,8 @@ def show():
     total_debit = float(df_cap["debit"].sum() if not df_cap.empty else 0)
     cash_balance = total_credit - total_debit
 
-    # Holdings atuais (preço de hoje)
-    today_prices = get_price_by_symbol(symbols, vs_currency='eur') if symbols else {}
+    # Holdings atuais (preço de hoje) - usar snapshots da BD para evitar chamadas API
+    today_prices = get_historical_prices_by_symbol(symbols, date.today(), allow_api_fallback=False) if symbols else {}
     crypto_value_today = 0.0
     if not cum_holdings.empty and len(cum_holdings) > 0:
         last_row = cum_holdings.iloc[-1]

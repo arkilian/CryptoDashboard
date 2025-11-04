@@ -26,7 +26,7 @@ from database.connection import get_connection, return_connection
 from database.api_config import get_active_apis
 from database.wallets import get_active_wallets
 from services.cardano_api import CardanoScanAPI
-from services.snapshots import ensure_assets_and_snapshots
+from services.snapshots import ensure_assets_and_snapshots, start_ensure_assets_and_snapshots_async
 from psycopg2.extras import Json
 
 logger = logging.getLogger(__name__)
@@ -298,17 +298,22 @@ def sync_wallet_transactions(wallet_id: int, bech32_address: str, max_pages: int
         cur.execute("SELECT COUNT(*) FROM t_cardano_tx_io WHERE wallet_id = %s", (wallet_id,))
         total_io = cur.fetchone()[0] or 0
         conn.commit()
-        # After commit, ensure assets and snapshots for period (best-effort)
-        # Se CoinGecko estiver com 429s, o sync continua mas sem preços
+        # After commit, trigger snapshot filling in background to avoid blocking UI
         try:
             if symbols_seen and min_tx_date and max_tx_date:
-                logger.info(f"📊 A garantir ativos e snapshots para {len(symbols_seen)} símbolos ({min_tx_date} a {max_tx_date})")
-                ensure_assets_and_snapshots(sorted(symbols_seen), min_tx_date, max_tx_date)
-                logger.info("✅ Ativos e snapshots processados")
+                started = start_ensure_assets_and_snapshots_async(sorted(symbols_seen), min_tx_date, max_tx_date)
+                if started:
+                    logger.info(
+                        f"🧵 Snapshots de preços iniciados em background para {len(symbols_seen)} símbolos ({min_tx_date}..{max_tx_date})"
+                    )
+                else:
+                    logger.info(
+                        f"📊 Snapshots não iniciados em background; tentando inline para {len(symbols_seen)} símbolos"
+                    )
+                    ensure_assets_and_snapshots(sorted(symbols_seen), min_tx_date, max_tx_date)
         except Exception as e:
             # Don't fail sync if pricing prep fails
             logger.warning(f"⚠️ Sync Cardano concluído mas preços podem estar incompletos: {e}")
-            pass
         return (len(transactions), int(total_io))
     except Exception:
         conn.rollback()

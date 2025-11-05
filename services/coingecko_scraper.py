@@ -61,7 +61,10 @@ COIN_MAPPING = {
     "cardano": "ADA",
     "bitcoin": "BTC",
     "ethereum": "ETH",
+    "solana": "SOL",
+    "sui": "SUI",
     "djed": "DJED",
+    "shen": "SHEN",
     "usd-coin": "USDC",
     "tether": "USDT",
 }
@@ -293,11 +296,11 @@ def _download_with_selenium(coin_id: str, url: str, cache_dir: str) -> Optional[
         Path do CSV ou None
     """
     try:
-        from selenium import webdriver
-        from selenium.webdriver.chrome.options import Options
-        from selenium.webdriver.common.by import By
-        from selenium.webdriver.support.ui import WebDriverWait
-        from selenium.webdriver.support import expected_conditions as EC
+        from selenium import webdriver  # type: ignore[import-unresolved]
+        from selenium.webdriver.chrome.options import Options  # type: ignore[import-unresolved]
+        from selenium.webdriver.common.by import By  # type: ignore[import-unresolved]
+        from selenium.webdriver.support.ui import WebDriverWait  # type: ignore[import-unresolved]
+        from selenium.webdriver.support import expected_conditions as EC  # type: ignore[import-unresolved]
         
         logger.info("🤖 A usar Selenium WebDriver...")
         
@@ -373,7 +376,7 @@ def parse_csv_and_insert(
         asset_symbol: Símbolo do ativo na BD (ex: 'ADA', 'BTC')
         limit_days: Limitar aos N dias mais recentes (None = todos)
         skip_existing: Se True, não sobrescreve snapshots existentes
-    use_fixed_rate: Se True, usa taxa USD->EUR fixa (0.92)
+        use_fixed_rate: Se True, usa taxa USD->EUR fixa (0.92)
         
     Returns:
         Número de registos inseridos
@@ -389,9 +392,11 @@ def parse_csv_and_insert(
         row = result.fetchone()
         if not row:
             logger.error(f"❌ Asset '{asset_symbol}' não encontrado em t_assets")
+            logger.error(f"💡 Solução: Insere o asset primeiro:")
+            logger.error(f"   INSERT INTO t_assets (symbol, name, coingecko_id, is_stablecoin)")
+            logger.error(f"   VALUES ('{asset_symbol}', 'Nome do Asset', 'coin-id', FALSE);")
             return 0
         asset_id = row[0]
-        coingecko_id = row[1]
     
     logger.info(f"📊 A processar CSV para {asset_symbol} (asset_id={asset_id})")
     
@@ -500,8 +505,11 @@ def scrape_and_populate(
     if not asset_symbol:
         asset_symbol = COIN_MAPPING.get(coin_id.lower())
         if not asset_symbol:
-            logger.error(f"❌ Moeda '{coin_id}' não mapeada. Use --symbol para especificar.")
-            return 0
+            # Tentar usar o coin_id em uppercase como fallback
+            asset_symbol = coin_id.upper()
+            logger.warning(f"⚠️ Moeda '{coin_id}' não está no COIN_MAPPING")
+            logger.warning(f"💡 A tentar usar '{asset_symbol}' como symbol")
+            logger.warning(f"💡 Se falhar, usa: --symbol SYMBOL_CORRETO")
     
     logger.info(f"🚀 A processar: {coin_id} -> {asset_symbol}")
     

@@ -306,11 +306,16 @@ python -m services.coingecko_scraper --coin cardano --csv cardano/ada-usd-max.cs
 ❌ Asset 'XYZ' não encontrado em t_assets
 ```
 
-**Solução:** Criar asset na base de dados primeiro:
+**Solução:** Criar asset na base de dados primeiro (SQL):
 
 ```sql
-INSERT INTO t_assets (symbol, name, type, coingecko_id)
-VALUES ('XYZ', 'Nome da Moeda', 'crypto', 'xyz-coin-id');
+INSERT INTO t_assets (symbol, name, coingecko_id, is_stablecoin)
+VALUES ('XYZ', 'Nome da Moeda', 'xyz-coin-id', FALSE);
+```
+
+**Depois** executar o import:
+```bash
+python -m services.coingecko_scraper --coin xyz-coin-id --csv path/xyz-usd-max.csv --all
 ```
 
 ### Erro: Ficheiro não encontrado
@@ -497,7 +502,7 @@ for i in range(0, len(rows), batch_size):
 
 - [ ] Download CSV do CoinGecko manualmente
 - [ ] Guardar em `{coin}/` folder (ex: `cardano/ada-usd-max.csv`)
-- [ ] Verificar asset existe em `t_assets`
+- [ ] Verificar que o asset existe em `t_assets` (criar via SQL se necessário)
 - [ ] Executar import: `--coin {name} --csv {path} --all`
 - [ ] Verificar resultados: `debug_scripts/check_csv_import.py`
 - [ ] Testar Portfolio v3: preços aparecem sem erros 429

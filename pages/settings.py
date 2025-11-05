@@ -147,12 +147,20 @@ def show_settings_page():
                 st.error("❌ O símbolo é obrigatório!")
             else:
                 try:
-                    with engine.connect() as conn:
-                        conn.execute("""
-                            INSERT INTO t_assets (symbol, name, chain, coingecko_id, is_stablecoin)
-                            VALUES (%s, %s, %s, %s, %s)
-                        """, (new_symbol, new_name or None, new_chain or None, new_coingecko_id or None, new_is_stablecoin))
-                        conn.commit()
+                    with engine.begin() as conn:
+                        conn.execute(
+                            text("""
+                                INSERT INTO t_assets (symbol, name, chain, coingecko_id, is_stablecoin)
+                                VALUES (:symbol, :name, :chain, :coingecko_id, :is_stablecoin)
+                            """),
+                            {
+                                "symbol": new_symbol,
+                                "name": new_name or None,
+                                "chain": new_chain or None,
+                                "coingecko_id": new_coingecko_id or None,
+                                "is_stablecoin": new_is_stablecoin
+                            }
+                        )
                     
                     st.success(f"✅ Ativo {new_symbol} adicionado com sucesso!")
                     st.rerun()

@@ -246,6 +246,11 @@ Para documentação técnica detalhada, arquitetura, guias de setup e modelo de 
 - [🧩 Modelo de Transações V2](wiki/07-transaction-model-v2.md)
 - [🔷 Integração Blockchain Cardano](wiki/08-cardano-integration.md)
 
+### 📥 Guias de Import de Dados
+
+- [📊 CoinGecko CSV Import](docs/COINGECKO_CSV_IMPORT.md) - Importar dados históricos de preços (manual + automático)
+- [🛡️ Web Scraping Anti-Bot](docs/WEB_SCRAPING_ANTIBOT.md) - Estratégias e limitações de scraping
+
 ## 🎯 Roadmap
 
 - [x] Sistema de Shares/NAV

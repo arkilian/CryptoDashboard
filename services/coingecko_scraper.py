@@ -3,18 +3,39 @@
 """
 CoinGecko Historical Data Scraper
 ----------------------------------
-Web scraper para fazer download de dados históricos do CoinGecko e popular t_price_snapshots.
+Parser de CSV para importar dados históricos do CoinGecko em t_price_snapshots.
+
+⚠️ IMPORTANTE: Web scraping automático NÃO FUNCIONA
+O CoinGecko bloqueia acesso automático ao CSV com 403 Forbidden, mesmo com:
+- Headers realistas (Chrome 131, sec-ch-ua, referer)
+- Navegação sequencial (homepage → página → download)
+- Session persistente com cookies
+- Selenium WebDriver
+
+Motivo: Página é SPA (JavaScript dinâmico) + proteções Cloudflare/anti-bot.
+
+✅ SOLUÇÃO RECOMENDADA: Download manual do CSV
+1. Aceder: https://www.coingecko.com/en/coins/cardano/historical_data
+2. Clicar: "Export Data" → "Download CSV"
+3. Guardar: cardano/ada-usd-max.csv
+4. Importar: python -m services.coingecko_scraper --coin cardano --csv cardano/ada-usd-max.csv --all
 
 Funcionalidades:
-- Download automático de CSV de dados históricos do CoinGecko
-- Parsing de CSV e conversão EUR via taxa USD->EUR histórica
-- Bulk insert na base de dados (t_price_snapshots)
-- Suporte a múltiplas moedas configuráveis
+- ✅ Parse de CSV do CoinGecko (formato: snapped_at, price, market_cap, total_volume)
+- ✅ Conversão USD→EUR (taxa fixa 0.92 ou dinâmica via API)
+- ✅ Bulk insert em t_price_snapshots (batching 1000 registos)
+- ✅ ON CONFLICT handling (skip ou overwrite)
+- ⚠️ Web scraping (experimental, geralmente bloqueado)
 
 Uso:
-    python -m services.coingecko_scraper --coin cardano --days 365
-    python -m services.coingecko_scraper --coin bitcoin --all
+    # RECOMENDADO: CSV manual
     python -m services.coingecko_scraper --coin cardano --csv cardano/ada-usd-max.csv --all
+    
+    # Experimental: tentar scraping automático (geralmente falha)
+    python -m services.coingecko_scraper --coin bitcoin --days 30
+    
+    # Fallback: Selenium (requer pip install selenium)
+    python -m services.coingecko_scraper --coin ethereum --selenium --all
 """
 
 import argparse
@@ -45,16 +66,31 @@ COIN_MAPPING = {
     "tether": "USDT",
 }
 
-# Headers para simular browser
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.5",
-    "Accept-Encoding": "gzip, deflate, br",
-    "DNT": "1",
-    "Connection": "keep-alive",
-    "Upgrade-Insecure-Requests": "1",
-}
+# Headers melhorados para simular browser real (anti-bot)
+def get_realistic_headers() -> Dict[str, str]:
+    """
+    Retorna headers realistas que imitam um browser Chrome recente.
+    Inclui headers adicionais que sites anti-bot verificam.
+    """
+    return {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9,pt;q=0.8",
+        "Accept-Encoding": "gzip, deflate, br, zstd",
+        "sec-ch-ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"',
+        "sec-fetch-dest": "document",
+        "sec-fetch-mode": "navigate",
+        "sec-fetch-site": "none",
+        "sec-fetch-user": "?1",
+        "upgrade-insecure-requests": "1",
+        "cache-control": "max-age=0",
+        "DNT": "1",
+        "Connection": "keep-alive",
+        # Referer simulado (como se viesse da homepage)
+        "Referer": "https://www.coingecko.com/",
+    }
 
 
 # Cache de taxas USD->EUR para evitar chamadas repetidas
@@ -69,10 +105,11 @@ def get_usd_to_eur_rate(target_date: date, use_fixed_rate: bool = True) -> float
     
     Args:
         target_date: Data para a qual queremos a taxa
-    use_fixed_rate: Se True, usa taxa fixa (recomendado)
+        use_fixed_rate: Se True, usa taxa fixa (recomendado)
         
     Returns:
         Taxa de conversão USD->EUR
+    """
     # Taxa fixa: simplifica e evita rate limits
     if use_fixed_rate:
         return 0.92
@@ -81,9 +118,8 @@ def get_usd_to_eur_rate(target_date: date, use_fixed_rate: bool = True) -> float
     if target_date in _usd_eur_cache:
         return _usd_eur_cache[target_date]
     
-    """
     try:
-    # ECB API endpoint (apenas se use_fixed_rate=False)
+        # ECB API endpoint (apenas se use_fixed_rate=False)
         url = f"https://api.exchangerate.host/{target_date.strftime('%Y-%m-%d')}"
         params = {"base": "USD", "symbols": "EUR"}
         
@@ -95,20 +131,39 @@ def get_usd_to_eur_rate(target_date: date, use_fixed_rate: bool = True) -> float
                 _usd_eur_cache[target_date] = float(rate)
                 return float(rate)
     except Exception as e:
-    logger.debug(f"Erro ao obter taxa USD->EUR para {target_date}: {e}")
+        logger.debug(f"Erro ao obter taxa USD->EUR para {target_date}: {e}")
     
     # Fallback: taxa média histórica
     _usd_eur_cache[target_date] = 0.92
     return 0.92
 
 
-def download_coingecko_csv(coin_id: str, cache_dir: str = "cache") -> Optional[str]:
+def download_coingecko_csv(coin_id: str, cache_dir: str = "cache", use_selenium: bool = False) -> Optional[str]:
     """
     Faz download do CSV de dados históricos do CoinGecko via web scraping.
+    ⚠️ AVISO: Esta função geralmente FALHA com 403 Forbidden
+    O CoinGecko protege o endpoint de download mesmo com headers realistas.
+    
+    Comportamento observado (2025-11-05):
+    - ✅ Homepage carrega (200 OK)
+    - ✅ Página da moeda carrega (200 OK)  
+    - ❌ Endpoint CSV retorna 403 Forbidden
+    - ❌ HTML é SPA (JavaScript dinâmico, 0 links parseáveis)
+    
+    RECOMENDAÇÃO: Usar --csv com arquivo baixado manualmente do site.
+    Ver: docs/COINGECKO_CSV_IMPORT.md
+    
+    
+    Estratégias anti-bloqueio:
+    1. Headers realistas (Chrome 131, sec-ch-ua, referer)
+    2. Session persistente (mantém cookies)
+    3. Delay entre requests (1-2s)
+    4. Opção Selenium para casos difíceis
     
     Args:
         coin_id: ID da moeda no CoinGecko (ex: 'cardano', 'bitcoin')
         cache_dir: Diretório para guardar CSV (opcional)
+        use_selenium: Usar Selenium WebDriver (mais lento, mas bypassa JS anti-bot)
         
     Returns:
         Path do ficheiro CSV ou None se falhar
@@ -118,25 +173,39 @@ def download_coingecko_csv(coin_id: str, cache_dir: str = "cache") -> Optional[s
     
     logger.info(f"🌐 A aceder à página: {historical_url}")
     
+    if use_selenium:
+        return _download_with_selenium(coin_id, historical_url, cache_dir)
+    
     try:
-        # Aceder à página de dados históricos
+        # Session persistente (mantém cookies entre requests)
         session = requests.Session()
-        resp = session.get(historical_url, headers=HEADERS, timeout=15)
+        headers = get_realistic_headers()
+        
+        # Passo 1: Visitar homepage primeiro (simular navegação real)
+        logger.info("🏠 A visitar homepage do CoinGecko...")
+        session.get("https://www.coingecko.com/", headers=headers, timeout=15)
+        time.sleep(1.5)  # Delay natural
+        
+        # Passo 2: Aceder à página de dados históricos
+        logger.info(f"📄 A aceder à página da moeda...")
+        resp = session.get(historical_url, headers=headers, timeout=15)
         resp.raise_for_status()
+        
+        time.sleep(1.0)  # Delay antes do download
         
         # Parse HTML para encontrar link de download CSV
         soup = BeautifulSoup(resp.content, "html.parser")
         
         # Procurar botão/link de download CSV
-        # Nota: a estrutura HTML pode mudar, tentamos várias abordagens
         csv_link = None
         
         # Tentativa 1: Link direto com 'download' ou 'csv' no href
         for link in soup.find_all("a", href=True):
             href = link.get("href", "")
             if "csv" in href.lower() or "download" in href.lower():
-                if coin_id in href:
+                if coin_id in href or "historical_data" in href:
                     csv_link = href
+                    logger.info(f"✓ Link CSV encontrado: {href[:80]}...")
                     break
         
         # Tentativa 2: Botão com data-* attributes (comum em SPAs)
@@ -144,13 +213,21 @@ def download_coingecko_csv(coin_id: str, cache_dir: str = "cache") -> Optional[s
             for btn in soup.find_all(["button", "a"], attrs={"data-export": True}):
                 csv_link = btn.get("data-url") or btn.get("href")
                 if csv_link:
+                    logger.info(f"✓ Link via data-export: {csv_link[:80]}...")
                     break
         
-        # Tentativa 3: Construir URL manualmente (padrão conhecido)
+        # Tentativa 3: Procurar por padrão "Export" no texto
         if not csv_link:
-            # Formato típico: /coins/[coin_id]/historical_data/usd?download=true
+            for link in soup.find_all("a", text=lambda t: t and "export" in t.lower()):
+                csv_link = link.get("href")
+                if csv_link:
+                    logger.info(f"✓ Link via texto 'Export': {csv_link[:80]}...")
+                    break
+        
+        # Tentativa 4: Construir URL manualmente (padrão conhecido)
+        if not csv_link:
             csv_link = f"/en/coins/{coin_id}/historical_data/usd"
-            logger.info(f"⚠️ Link CSV não encontrado no HTML, a tentar URL padrão")
+            logger.warning(f"⚠️ Link CSV não encontrado no HTML, a tentar URL padrão")
         
         # Construir URL absoluta
         if csv_link.startswith("/"):
@@ -160,9 +237,13 @@ def download_coingecko_csv(coin_id: str, cache_dir: str = "cache") -> Optional[s
         
         logger.info(f"📥 A fazer download do CSV: {csv_link}")
         
-        # Download do CSV
-        csv_params = {"download": "true"} if "download" not in csv_link else {}
-        csv_resp = session.get(csv_link, headers=HEADERS, params=csv_params, timeout=30)
+        # Atualizar headers com referer da página de dados históricos
+        headers["Referer"] = historical_url
+        headers["sec-fetch-site"] = "same-origin"
+        
+        # Download do CSV com parâmetros adicionais
+        csv_params = {"download": "true"} if "?" not in csv_link else {}
+        csv_resp = session.get(csv_link, headers=headers, params=csv_params, timeout=30)
         csv_resp.raise_for_status()
         
         # Verificar se recebemos CSV
@@ -170,7 +251,8 @@ def download_coingecko_csv(coin_id: str, cache_dir: str = "cache") -> Optional[s
         if "csv" not in content_type.lower() and "text/plain" not in content_type.lower():
             # Pode ser HTML com erro - tentar parsing direto
             if csv_resp.text.startswith("<!DOCTYPE") or "<html" in csv_resp.text[:100]:
-                logger.error("❌ Resposta é HTML, não CSV. O scraping pode ter falhado.")
+                logger.error("❌ Resposta é HTML, não CSV. O scraping foi bloqueado.")
+                logger.info("💡 Tenta usar --selenium para bypass com WebDriver")
                 return None
         
         # Guardar em cache
@@ -185,9 +267,94 @@ def download_coingecko_csv(coin_id: str, cache_dir: str = "cache") -> Optional[s
         
     except requests.exceptions.RequestException as e:
         logger.error(f"❌ Erro de rede ao fazer download: {e}")
+        logger.info("💡 Possíveis soluções:")
+        logger.info("   1. Usar --selenium para bypass com WebDriver")
+        logger.info("   2. Descarregar CSV manualmente e usar --csv <path>")
+        logger.info("   3. Tentar novamente mais tarde (rate limit temporário)")
         return None
     except Exception as e:
         logger.error(f"❌ Erro inesperado: {e}")
+        return None
+
+
+def _download_with_selenium(coin_id: str, url: str, cache_dir: str) -> Optional[str]:
+    """
+    Fallback usando Selenium WebDriver para bypass de proteções JS.
+    
+    Requer: pip install selenium
+    Opcional: chromedriver no PATH ou webdriver-manager
+    
+    Args:
+        coin_id: ID da moeda
+        url: URL da página de dados históricos
+        cache_dir: Diretório para guardar CSV
+        
+    Returns:
+        Path do CSV ou None
+    """
+    try:
+        from selenium import webdriver
+        from selenium.webdriver.chrome.options import Options
+        from selenium.webdriver.common.by import By
+        from selenium.webdriver.support.ui import WebDriverWait
+        from selenium.webdriver.support import expected_conditions as EC
+        
+        logger.info("🤖 A usar Selenium WebDriver...")
+        
+        # Configurar Chrome headless
+        chrome_options = Options()
+        chrome_options.add_argument("--headless")
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        chrome_options.add_experimental_option("useAutomationExtension", False)
+        
+        driver = webdriver.Chrome(options=chrome_options)
+        driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+            "source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+        })
+        
+        # Aceder à página
+        driver.get(url)
+        time.sleep(3)  # Aguardar carregamento JS
+        
+        # Procurar botão de export CSV
+        try:
+            wait = WebDriverWait(driver, 10)
+            # Adaptar seletor conforme estrutura real do site
+            export_btn = wait.until(
+                EC.element_to_be_clickable((By.XPATH, "//a[contains(text(), 'Export') or contains(@href, 'csv')]"))
+            )
+            csv_url = export_btn.get_attribute("href")
+            
+            # Download do CSV
+            driver.get(csv_url)
+            time.sleep(2)
+            
+            # Obter conteúdo
+            csv_content = driver.page_source
+            
+            # Guardar
+            os.makedirs(cache_dir, exist_ok=True)
+            cache_path = os.path.join(cache_dir, f"{coin_id}-usd-max.csv")
+            with open(cache_path, "w", encoding="utf-8") as f:
+                f.write(csv_content)
+            
+            driver.quit()
+            logger.info(f"✅ CSV obtido via Selenium: {cache_path}")
+            return cache_path
+            
+        except Exception as e:
+            driver.quit()
+            logger.error(f"❌ Erro ao localizar botão de export: {e}")
+            return None
+            
+    except ImportError:
+        logger.error("❌ Selenium não está instalado. Instala com: pip install selenium")
+        return None
+    except Exception as e:
+        logger.error(f"❌ Erro no Selenium: {e}")
         return None
 
 
@@ -312,6 +479,7 @@ def scrape_and_populate(
     skip_existing: bool = True,
     csv_file: Optional[str] = None,
     use_fixed_rate: bool = True,
+    use_selenium: bool = False,
 ) -> int:
     """
     Pipeline completo: download CSV + parse + insert.
@@ -322,7 +490,8 @@ def scrape_and_populate(
         limit_days: Limitar aos N dias mais recentes
         skip_existing: Não sobrescrever dados existentes
         csv_file: Path para CSV existente (se fornecido, skip download)
-    use_fixed_rate: Se True, usa taxa USD->EUR fixa (0.92)
+        use_fixed_rate: Se True, usa taxa USD->EUR fixa (0.92)
+        use_selenium: Usar Selenium para bypass (requer pip install selenium)
         
     Returns:
         Número de registos inseridos
@@ -345,7 +514,7 @@ def scrape_and_populate(
         csv_path = csv_file
     else:
         # Download CSV
-        csv_path = download_coingecko_csv(coin_id)
+        csv_path = download_coingecko_csv(coin_id, use_selenium=use_selenium)
         if not csv_path:
             logger.error("❌ Falha no download do CSV")
             return 0
@@ -358,7 +527,20 @@ def scrape_and_populate(
 
 def main():
     """CLI interface."""
-    parser = argparse.ArgumentParser(description="CoinGecko Historical Data Scraper")
+    parser = argparse.ArgumentParser(
+        description="CoinGecko Historical Data Scraper",
+        epilog="""
+Exemplos:
+  # Usar CSV existente (recomendado)
+  python -m services.coingecko_scraper --coin cardano --csv cardano/ada-usd-max.csv --all
+  
+  # Tentar download automático
+  python -m services.coingecko_scraper --coin bitcoin --all
+  
+  # Usar Selenium para bypass (requer: pip install selenium)
+  python -m services.coingecko_scraper --coin ethereum --selenium --all
+        """
+    )
     parser.add_argument("--coin", required=True, help="CoinGecko coin ID (ex: cardano, bitcoin)")
     parser.add_argument("--symbol", help="Asset symbol na BD (auto-detect se omitido)")
     parser.add_argument("--csv", help="Path para CSV existente (skip download)")
@@ -366,6 +548,7 @@ def main():
     parser.add_argument("--all", action="store_true", help="Processar todos os dados históricos")
     parser.add_argument("--overwrite", action="store_true", help="Sobrescrever dados existentes")
     parser.add_argument("--dynamic-rate", action="store_true", help="Usar taxa USD->EUR dinâmica (lento, pode ter timeouts)")
+    parser.add_argument("--selenium", action="store_true", help="Usar Selenium WebDriver para bypass (requer selenium instalado)")
     parser.add_argument("--verbose", "-v", action="store_true", help="Logging verbose")
     
     args = parser.parse_args()
@@ -385,7 +568,8 @@ def main():
         limit_days=limit_days,
         skip_existing=not args.overwrite,
         csv_file=args.csv,
-    use_fixed_rate=not args.dynamic_rate,
+        use_fixed_rate=not args.dynamic_rate,
+        use_selenium=args.selenium,
     )
     
     if count > 0:

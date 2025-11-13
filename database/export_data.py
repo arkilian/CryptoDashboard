@@ -3,6 +3,7 @@ Script para exportar dados existentes da base de dados para ficheiro SQL de INSE
 """
 import psycopg2
 import os
+import json
 from dotenv import load_dotenv
 from datetime import datetime
 
@@ -27,6 +28,12 @@ def format_value(val):
         return str(val)
     elif isinstance(val, datetime):
         return f"'{val.isoformat()}'"
+    elif isinstance(val, dict):
+        # Converter dict Python para JSON válido (com aspas duplas)
+        json_str = json.dumps(val, ensure_ascii=False)
+        # Escapar aspas simples para SQL
+        json_str = json_str.replace("'", "''")
+        return f"'{json_str}'"
     else:
         # Escape aspas simples
         val_str = str(val).replace("'", "''")

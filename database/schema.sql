@@ -472,21 +472,25 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS update_wallet_updated_at ON t_wallet;
 CREATE TRIGGER update_wallet_updated_at
     BEFORE UPDATE ON t_wallet
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_banco_updated_at ON t_banco;
 CREATE TRIGGER update_banco_updated_at
     BEFORE UPDATE ON t_banco
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_api_cardano_updated_at ON t_api_cardano;
 CREATE TRIGGER update_api_cardano_updated_at
     BEFORE UPDATE ON t_api_cardano
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_api_coingecko_updated_at ON t_api_coingecko;
 CREATE TRIGGER update_api_coingecko_updated_at
     BEFORE UPDATE ON t_api_coingecko
     FOR EACH ROW
@@ -539,15 +543,14 @@ CREATE INDEX IF NOT EXISTS idx_user_shares_date ON t_user_shares(movement_date D
 CREATE INDEX IF NOT EXISTS idx_cardano_transactions_wallet ON t_cardano_transactions(wallet_id);
 CREATE INDEX IF NOT EXISTS idx_cardano_transactions_hash ON t_cardano_transactions(tx_hash);
 CREATE INDEX IF NOT EXISTS idx_cardano_transactions_address ON t_cardano_transactions(address);
-CREATE INDEX IF NOT EXISTS idx_cardano_transactions_block_time ON t_cardano_transactions(block_time DESC);
+CREATE INDEX IF NOT EXISTS idx_cardano_transactions_tx_timestamp ON t_cardano_transactions(tx_timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_cardano_transactions_status ON t_cardano_transactions(status);
-CREATE INDEX IF NOT EXISTS idx_cardano_tx_io_tx ON t_cardano_tx_io(cardano_tx_id);
+CREATE INDEX IF NOT EXISTS idx_cardano_tx_io_tx_wallet ON t_cardano_tx_io(tx_hash, wallet_id);
 CREATE INDEX IF NOT EXISTS idx_cardano_tx_io_wallet ON t_cardano_tx_io(wallet_id);
 CREATE INDEX IF NOT EXISTS idx_cardano_tx_io_tx_hash ON t_cardano_tx_io(tx_hash);
 CREATE INDEX IF NOT EXISTS idx_cardano_tx_io_address ON t_cardano_tx_io(address);
 CREATE INDEX IF NOT EXISTS idx_cardano_tx_io_policy ON t_cardano_tx_io(policy_id);
-CREATE INDEX IF NOT EXISTS idx_cardano_assets_fingerprint ON t_cardano_assets(fingerprint);
-CREATE INDEX IF NOT EXISTS idx_cardano_assets_policy ON t_cardano_assets(policy_id, asset_name);
+CREATE INDEX IF NOT EXISTS idx_cardano_assets_policy ON t_cardano_assets(policy_id, asset_name_hex);
 
 -- API Config
 CREATE INDEX IF NOT EXISTS idx_api_coingecko_active ON t_api_coingecko(is_active);

@@ -254,18 +254,37 @@ CREATE TABLE IF NOT EXISTS t_user_shares (
 
 CREATE TABLE IF NOT EXISTS t_wallet (
     wallet_id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES t_users(user_id),
     wallet_name TEXT NOT NULL,
-    wallet_address TEXT UNIQUE NOT NULL,
+    wallet_type TEXT,
     blockchain TEXT NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    address TEXT UNIQUE NOT NULL,
+    stake_address TEXT,
+    is_active BOOLEAN DEFAULT TRUE,
+    is_primary BOOLEAN DEFAULT FALSE,
+    balance_last_sync TIMESTAMP WITH TIME ZONE,
+    notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS t_banco (
-    bank_id SERIAL PRIMARY KEY,
+    banco_id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES t_users(user_id),
     bank_name TEXT NOT NULL,
+    account_holder TEXT,
+    iban TEXT,
+    swift_bic TEXT,
     account_number TEXT,
-    swift_code TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    currency TEXT DEFAULT 'EUR',
+    country TEXT,
+    branch TEXT,
+    account_type TEXT,
+    is_active BOOLEAN DEFAULT TRUE,
+    is_primary BOOLEAN DEFAULT FALSE,
+    notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ========================================
@@ -274,8 +293,14 @@ CREATE TABLE IF NOT EXISTS t_banco (
 
 CREATE TABLE IF NOT EXISTS t_api_coingecko (
     api_id SERIAL PRIMARY KEY,
+    api_name TEXT,
     api_key TEXT,
+    base_url TEXT,
+    rate_limit INTEGER,
     rate_limit_per_minute INTEGER DEFAULT 10,
+    timeout INTEGER,
+    is_active BOOLEAN DEFAULT TRUE,
+    notes TEXT,
     last_request_time TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -283,10 +308,17 @@ CREATE TABLE IF NOT EXISTS t_api_coingecko (
 
 CREATE TABLE IF NOT EXISTS t_api_cardano (
     api_id SERIAL PRIMARY KEY,
+    api_name TEXT,
     wallet_id INTEGER REFERENCES t_wallet(wallet_id),
     api_key TEXT,
+    base_url TEXT,
+    default_address TEXT,
     api_endpoint TEXT DEFAULT 'https://api.cardanoscan.io/api/v1',
+    rate_limit INTEGER,
     rate_limit_per_minute INTEGER DEFAULT 60,
+    timeout INTEGER,
+    is_active BOOLEAN DEFAULT TRUE,
+    notes TEXT,
     last_request_time TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -300,6 +332,7 @@ CREATE TABLE IF NOT EXISTS t_cardano_assets (
     asset_id SERIAL PRIMARY KEY,
     policy_id TEXT NOT NULL,
     asset_name TEXT NOT NULL,
+    asset_name_hex TEXT,
     fingerprint TEXT UNIQUE,
     display_name TEXT,
     decimals INTEGER DEFAULT 0,
@@ -311,10 +344,15 @@ CREATE TABLE IF NOT EXISTS t_cardano_transactions (
     cardano_tx_id SERIAL PRIMARY KEY,
     wallet_id INTEGER REFERENCES t_wallet(wallet_id),
     tx_hash TEXT NOT NULL,
+    address TEXT,
     block_time TIMESTAMP WITH TIME ZONE NOT NULL,
+    tx_timestamp TIMESTAMP WITH TIME ZONE,
     block_height INTEGER,
     fee BIGINT NOT NULL,
+    fees_ada NUMERIC(18,6),
     tx_type TEXT,
+    status TEXT,
+    raw_payload TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(tx_hash)
 );
@@ -322,12 +360,19 @@ CREATE TABLE IF NOT EXISTS t_cardano_transactions (
 CREATE TABLE IF NOT EXISTS t_cardano_tx_io (
     io_id SERIAL PRIMARY KEY,
     cardano_tx_id INTEGER REFERENCES t_cardano_transactions(cardano_tx_id) ON DELETE CASCADE,
+    wallet_id INTEGER REFERENCES t_wallet(wallet_id),
+    tx_hash TEXT,
     io_type TEXT NOT NULL CHECK (io_type IN ('input', 'output')),
     address TEXT NOT NULL,
     ada_amount BIGINT NOT NULL,
+    lovelace BIGINT,
     asset_policy_id TEXT,
+    policy_id TEXT,
     asset_name TEXT,
+    asset_name_hex TEXT,
     asset_quantity BIGINT,
+    token_amount NUMERIC(36,8),
+    token_value_raw TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -389,11 +434,30 @@ CREATE INDEX IF NOT EXISTS idx_user_shares_date ON t_user_shares(movement_date D
 -- Cardano
 CREATE INDEX IF NOT EXISTS idx_cardano_transactions_wallet ON t_cardano_transactions(wallet_id);
 CREATE INDEX IF NOT EXISTS idx_cardano_transactions_hash ON t_cardano_transactions(tx_hash);
+CREATE INDEX IF NOT EXISTS idx_cardano_transactions_address ON t_cardano_transactions(address);
 CREATE INDEX IF NOT EXISTS idx_cardano_transactions_block_time ON t_cardano_transactions(block_time DESC);
+CREATE INDEX IF NOT EXISTS idx_cardano_transactions_status ON t_cardano_transactions(status);
 CREATE INDEX IF NOT EXISTS idx_cardano_tx_io_tx ON t_cardano_tx_io(cardano_tx_id);
+CREATE INDEX IF NOT EXISTS idx_cardano_tx_io_wallet ON t_cardano_tx_io(wallet_id);
+CREATE INDEX IF NOT EXISTS idx_cardano_tx_io_tx_hash ON t_cardano_tx_io(tx_hash);
 CREATE INDEX IF NOT EXISTS idx_cardano_tx_io_address ON t_cardano_tx_io(address);
+CREATE INDEX IF NOT EXISTS idx_cardano_tx_io_policy ON t_cardano_tx_io(policy_id);
 CREATE INDEX IF NOT EXISTS idx_cardano_assets_fingerprint ON t_cardano_assets(fingerprint);
 CREATE INDEX IF NOT EXISTS idx_cardano_assets_policy ON t_cardano_assets(policy_id, asset_name);
+
+-- API Config
+CREATE INDEX IF NOT EXISTS idx_api_coingecko_active ON t_api_coingecko(is_active);
+CREATE INDEX IF NOT EXISTS idx_api_cardano_wallet ON t_api_cardano(wallet_id);
+CREATE INDEX IF NOT EXISTS idx_api_cardano_active ON t_api_cardano(is_active);
+
+-- Wallet e Banco
+CREATE INDEX IF NOT EXISTS idx_wallet_user_id ON t_wallet(user_id);
+CREATE INDEX IF NOT EXISTS idx_wallet_address ON t_wallet(address);
+CREATE INDEX IF NOT EXISTS idx_wallet_blockchain ON t_wallet(blockchain);
+CREATE INDEX IF NOT EXISTS idx_wallet_active ON t_wallet(is_active);
+CREATE INDEX IF NOT EXISTS idx_banco_user_id ON t_banco(user_id);
+CREATE INDEX IF NOT EXISTS idx_banco_iban ON t_banco(iban);
+CREATE INDEX IF NOT EXISTS idx_banco_active ON t_banco(is_active);
 
 -- ========================================
 -- FIM DO SCHEMA

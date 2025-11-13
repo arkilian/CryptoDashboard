@@ -2,15 +2,16 @@
 
 ## ✅ Ficheiros Criados
 
-Foram criados **5 ficheiros** para facilitar a criação de uma base de dados nova:
+Foram criados **8 ficheiros** para facilitar a criação de uma base de dados nova:
 
-### 1. 📋 `schema.sql` (10 KB)
+### 1. 📋 `schema.sql` (15 KB)
 **Estrutura completa da base de dados**
-- 30+ tabelas
+- 30+ tabelas (atualizado com todas as colunas)
 - Índices otimizados
 - Views
 - Constraints e chaves estrangeiras
 - **SEM dados** - apenas estrutura
+- ✅ **100% compatível com data_export.sql**
 
 ### 2. 📊 `data_export.sql` (2.5 MB / ~24,000 linhas)
 **Todos os dados atuais da base de dados**
@@ -21,6 +22,7 @@ Foram criados **5 ficheiros** para facilitar a criação de uma base de dados no
 - 33 ativos
 - 3 utilizadores
 - Respeitando ordem de dependências
+- ✅ **Testado e validado**
 
 ### 3. 🔧 `export_data.py`
 **Script Python para re-exportar dados**
@@ -45,6 +47,18 @@ Foram criados **5 ficheiros** para facilitar a criação de uma base de dados no
 - Instruções passo-a-passo
 - Troubleshooting
 - Estatísticas da exportação
+
+### 7. ✅ `test_schema_compatibility.py`
+**Script de teste e validação**
+- Verifica compatibilidade schema ↔ dados
+- Identifica colunas faltantes
+- Garante integridade da exportação
+- ✅ **Todos os testes passaram!**
+
+### 8. 📄 `QUICK_REFERENCE.txt`
+**Guia rápido de referência**
+- Comandos essenciais
+- Workflows comuns
 
 ---
 
@@ -186,13 +200,18 @@ database/
 
 1. **Testar o sistema:**
    ```bash
-   setup_database.bat  # Criar base de dados de teste
+   # Validar compatibilidade
+   python database/test_schema_compatibility.py
+   
+   # Criar base de dados de teste
+   setup_database.bat
    ```
 
 2. **Adicionar ao .gitignore:**
    ```
    database/data_export.sql
    ```
+   ✅ **Já adicionado!**
 
 3. **Criar backups regulares:**
    ```bash

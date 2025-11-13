@@ -329,51 +329,54 @@ CREATE TABLE IF NOT EXISTS t_api_cardano (
 -- ========================================
 
 CREATE TABLE IF NOT EXISTS t_cardano_assets (
-    asset_id SERIAL PRIMARY KEY,
     policy_id TEXT NOT NULL,
-    asset_name TEXT NOT NULL,
     asset_name_hex TEXT,
-    fingerprint TEXT UNIQUE,
     display_name TEXT,
     decimals INTEGER DEFAULT 0,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(policy_id, asset_name)
+    CONSTRAINT pk_cardano_assets PRIMARY KEY (policy_id, asset_name_hex)
 );
 
 CREATE TABLE IF NOT EXISTS t_cardano_transactions (
-    cardano_tx_id SERIAL PRIMARY KEY,
-    wallet_id INTEGER REFERENCES t_wallet(wallet_id),
     tx_hash TEXT NOT NULL,
-    address TEXT,
-    block_time TIMESTAMP WITH TIME ZONE NOT NULL,
-    tx_timestamp TIMESTAMP WITH TIME ZONE,
+    wallet_id INTEGER NOT NULL REFERENCES t_wallet(wallet_id) ON DELETE CASCADE,
+    address TEXT NOT NULL,
     block_height INTEGER,
-    fee BIGINT NOT NULL,
-    fees_ada NUMERIC(18,6),
-    tx_type TEXT,
+    tx_timestamp TIMESTAMP WITH TIME ZONE,
     status TEXT,
-    raw_payload TEXT,
+    fees_ada NUMERIC(36, 8) DEFAULT 0,
+    raw_payload JSONB,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(tx_hash)
+    CONSTRAINT t_cardano_transactions_pkey PRIMARY KEY (tx_hash, wallet_id)
 );
 
 CREATE TABLE IF NOT EXISTS t_cardano_tx_io (
-    io_id SERIAL PRIMARY KEY,
-    cardano_tx_id INTEGER REFERENCES t_cardano_transactions(cardano_tx_id) ON DELETE CASCADE,
-    wallet_id INTEGER REFERENCES t_wallet(wallet_id),
-    tx_hash TEXT,
+    io_id BIGSERIAL PRIMARY KEY,
+    tx_hash TEXT NOT NULL,
+    wallet_id INTEGER NOT NULL REFERENCES t_wallet(wallet_id) ON DELETE CASCADE,
     io_type TEXT NOT NULL CHECK (io_type IN ('input', 'output')),
     address TEXT NOT NULL,
-    ada_amount BIGINT NOT NULL,
     lovelace BIGINT,
-    asset_policy_id TEXT,
     policy_id TEXT,
-    asset_name TEXT,
     asset_name_hex TEXT,
-    asset_quantity BIGINT,
-    token_amount NUMERIC(36,8),
-    token_value_raw TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    token_value_raw NUMERIC(40, 0),
+    token_amount NUMERIC(36, 8),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT t_cardano_tx_io_tx_fkey 
+        FOREIGN KEY (tx_hash, wallet_id) 
+        REFERENCES t_cardano_transactions(tx_hash, wallet_id) 
+        ON DELETE CASCADE
+);
+
+-- ========================================
+-- SYNC STATE PER WALLET
+-- ========================================
+
+CREATE TABLE IF NOT EXISTS t_cardano_sync_state (
+    wallet_id INTEGER PRIMARY KEY REFERENCES t_wallet(wallet_id) ON DELETE CASCADE,
+    last_block_height INTEGER,
+    last_tx_timestamp TIMESTAMP WITH TIME ZONE,
+    last_synced_at TIMESTAMP WITH TIME ZONE
 );
 
 -- ========================================
@@ -387,6 +390,107 @@ SELECT
 FROM t_user_shares
 GROUP BY user_id
 HAVING SUM(shares_amount) > 0;
+
+-- ========================================
+-- VIEWS ÚTEIS - WALLETS E BANCOS
+-- ========================================
+
+CREATE OR REPLACE VIEW v_user_active_wallets AS
+SELECT 
+    w.wallet_id,
+    w.user_id,
+    u.username,
+    w.wallet_name,
+    w.wallet_type,
+    w.blockchain,
+    w.address,
+    w.stake_address,
+    w.is_primary,
+    w.balance_last_sync
+FROM t_wallet w
+JOIN t_users u ON w.user_id = u.user_id
+WHERE w.is_active = TRUE
+ORDER BY u.username, w.is_primary DESC, w.wallet_name;
+
+CREATE OR REPLACE VIEW v_user_active_banks AS
+SELECT 
+    b.banco_id,
+    b.user_id,
+    u.username,
+    b.bank_name,
+    b.account_holder,
+    b.iban,
+    b.swift_bic,
+    b.currency,
+    b.is_primary
+FROM t_banco b
+JOIN t_users u ON b.user_id = u.user_id
+WHERE b.is_active = TRUE
+ORDER BY u.username, b.is_primary DESC, b.bank_name;
+
+CREATE OR REPLACE VIEW v_active_apis AS
+SELECT 
+    api_id,
+    api_name,
+    base_url,
+    rate_limit,
+    timeout,
+    created_at,
+    updated_at
+FROM t_api_cardano
+WHERE is_active = TRUE
+ORDER BY api_name;
+
+-- ========================================
+-- VIEW: CARDANO DAILY DELTAS
+-- ========================================
+
+CREATE OR REPLACE VIEW v_cardano_daily_deltas AS
+WITH io AS (
+    SELECT 
+        t.tx_timestamp::date AS dt,
+        i.wallet_id,
+        i.policy_id,
+        i.asset_name_hex,
+        SUM(CASE WHEN i.io_type = 'output' THEN COALESCE(i.lovelace, 0) ELSE -COALESCE(i.lovelace, 0) END) AS net_lovelace,
+        SUM(CASE WHEN i.io_type = 'output' THEN COALESCE(i.token_value_raw, 0) ELSE -COALESCE(i.token_value_raw, 0) END) AS net_token_raw
+    FROM t_cardano_tx_io i
+    JOIN t_cardano_transactions t ON t.tx_hash = i.tx_hash AND t.wallet_id = i.wallet_id
+    GROUP BY 1,2,3,4
+)
+SELECT * FROM io;
+
+-- ========================================
+-- TRIGGERS E FUNÇÕES
+-- ========================================
+
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER update_wallet_updated_at
+    BEFORE UPDATE ON t_wallet
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_banco_updated_at
+    BEFORE UPDATE ON t_banco
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_api_cardano_updated_at
+    BEFORE UPDATE ON t_api_cardano
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_api_coingecko_updated_at
+    BEFORE UPDATE ON t_api_coingecko
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
 
 -- ========================================
 -- ÍNDICES
@@ -458,6 +562,41 @@ CREATE INDEX IF NOT EXISTS idx_wallet_active ON t_wallet(is_active);
 CREATE INDEX IF NOT EXISTS idx_banco_user_id ON t_banco(user_id);
 CREATE INDEX IF NOT EXISTS idx_banco_iban ON t_banco(iban);
 CREATE INDEX IF NOT EXISTS idx_banco_active ON t_banco(is_active);
+
+-- ========================================
+-- COMENTÁRIOS NAS TABELAS (DOCUMENTAÇÃO)
+-- ========================================
+
+-- Utilizadores
+COMMENT ON TABLE t_users IS 'Utilizadores do sistema com autenticação bcrypt';
+COMMENT ON TABLE t_user_profile IS 'Perfis detalhados dos utilizadores (informação pessoal)';
+
+-- APIs
+COMMENT ON TABLE t_api_cardano IS 'Configurações de APIs para consultas blockchain (inicialmente Cardano)';
+COMMENT ON TABLE t_api_coingecko IS 'Configurações de API do CoinGecko para preços de criptomoedas';
+COMMENT ON COLUMN t_api_cardano.api_key IS 'Chave de API (sensível - deve ser encriptada)';
+COMMENT ON COLUMN t_api_cardano.default_address IS 'Endereço padrão usado nas consultas';
+COMMENT ON COLUMN t_api_cardano.rate_limit IS 'Limite de requests por minuto';
+
+-- Wallets e Bancos
+COMMENT ON TABLE t_wallet IS 'Gestão de wallets dos utilizadores (hot, cold, hardware)';
+COMMENT ON TABLE t_banco IS 'Informações bancárias dos utilizadores (IBAN, SWIFT, titular)';
+COMMENT ON COLUMN t_wallet.wallet_type IS 'Tipo: hot (online), cold (offline), hardware (Ledger/Trezor), exchange, defi';
+COMMENT ON COLUMN t_wallet.is_primary IS 'Wallet principal do utilizador (apenas 1 por user)';
+COMMENT ON COLUMN t_wallet.stake_address IS 'Endereço de staking (stake1...) para Cardano';
+COMMENT ON COLUMN t_banco.iban IS 'IBAN no formato internacional (ex: PT50...)';
+COMMENT ON COLUMN t_banco.swift_bic IS 'Código SWIFT/BIC para transferências internacionais';
+COMMENT ON COLUMN t_banco.account_type IS 'Tipo de conta: checking (à ordem), savings (poupança), business (empresarial), investment';
+
+-- Cardano
+COMMENT ON TABLE t_cardano_transactions IS 'Raw Cardano transactions per tracked wallet. Same tx_hash can appear multiple times for different wallets (e.g., inter-wallet transfers).';
+COMMENT ON TABLE t_cardano_tx_io IS 'Per-IO breakdown for tracked wallet address; ADA in lovelace, tokens by policy/asset_name.';
+COMMENT ON TABLE t_cardano_assets IS 'Resolved metadata for Cardano native tokens (name/decimals).';
+COMMENT ON TABLE t_cardano_sync_state IS 'Incremental sync state for Cardano wallets.';
+
+-- Transações e Shares
+COMMENT ON TABLE t_transactions IS 'Transações V2 com suporte multi-asset e multi-conta';
+COMMENT ON TABLE t_user_shares IS 'Sistema de ownership baseado em NAV (como fundos de investimento)';
 
 -- ========================================
 -- FIM DO SCHEMA

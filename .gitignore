@@ -3,6 +3,11 @@
 .env.*
 *.env
 
+# Database exports (contain sensitive data)
+database/data_export.sql
+database/*_backup.sql
+database/*.dump
+
 # Python cache
 __pycache__/
 *.pyc

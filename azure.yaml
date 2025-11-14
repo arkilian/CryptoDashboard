@@ -1,0 +1,8 @@
+name: cryptodashboard
+metadata:
+  template: cryptodashboard
+services:
+  web:
+    language: py
+    host: appservice
+    project: .

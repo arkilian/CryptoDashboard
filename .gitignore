@@ -3,6 +3,11 @@
 .env.*
 *.env
 
+# Azure specific
+.azure/
+!.azure/plan.copilotmd
+*.parameters.json
+
 # Database exports (contain sensitive data)
 database/data_export.sql
 database/*_backup.sql

@@ -158,4 +158,10 @@ def main():
         st.rerun()
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:  # Captura erro de arranque para evitar 503 silencioso
+        import streamlit as st
+        import traceback
+        st.error(f"Falha ao iniciar aplicação: {e}")
+        st.code(traceback.format_exc())

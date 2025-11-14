@@ -134,4 +134,3 @@ resource webApp 'Microsoft.Web/sites@2023-01-01' = {
 output webAppId string = webApp.id
 output webAppName string = webApp.name
 output webAppUrl string = 'https://${webApp.properties.defaultHostName}'
-output webAppPrincipalId string = webApp.identity.principalId

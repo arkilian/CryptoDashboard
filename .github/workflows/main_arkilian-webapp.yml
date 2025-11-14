@@ -74,13 +74,13 @@ jobs:
       #   - AZURE_DB_PASSWORD
       # Nota: O IP do runner GitHub deve estar autorizado na firewall do servidor PostgreSQL.
       - name: Set up Python for connectivity check
-        if: ${{ secrets.AZURE_DB_HOST != '' }}
+        if: vars.ENABLE_DB_CHECK == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.13'
 
       - name: Install minimal dependency (psycopg2) or full requirements
-        if: ${{ secrets.AZURE_DB_HOST != '' }}
+        if: vars.ENABLE_DB_CHECK == 'true'
         run: |
           python -m venv venv
           source venv/bin/activate
@@ -88,7 +88,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run DB connectivity check script
-        if: ${{ secrets.AZURE_DB_HOST != '' }}
+        if: vars.ENABLE_DB_CHECK == 'true'
         env:
           DB_HOST: ${{ secrets.AZURE_DB_HOST }}
           DB_PORT: ${{ secrets.AZURE_DB_PORT }}

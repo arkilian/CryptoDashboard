@@ -71,7 +71,8 @@ resource webApp 'Microsoft.Web/sites@2023-01-01' = {
       alwaysOn: true
       ftpsState: 'Disabled'
       minTlsVersion: '1.2'
-      appCommandLine: 'python -m streamlit run app.py --server.port 8000 --server.address 0.0.0.0'
+      // Use Procfile (web: sh startup.sh) via startup command
+      appCommandLine: 'sh startup.sh'
       appSettings: [
         {
           name: 'WEBSITES_PORT'
@@ -79,11 +80,16 @@ resource webApp 'Microsoft.Web/sites@2023-01-01' = {
         }
         {
           name: 'SCM_DO_BUILD_DURING_DEPLOYMENT'
-          value: 'true'
+          // Build at container startup with Oryx instead of during Kudu deployment
+          value: 'false'
         }
         {
           name: 'ENABLE_ORYX_BUILD'
           value: 'true'
+        }
+        {
+          name: 'PYTHON_VERSION'
+          value: '3.11'
         }
         {
           name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'

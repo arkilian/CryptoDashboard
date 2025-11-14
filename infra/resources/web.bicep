@@ -124,12 +124,9 @@ resource webApp 'Microsoft.Web/sites@2023-01-01' = {
 }
 
 // ========================================
-// APP SERVICE SITE EXTENSION (Required by azd)
-// ========================================
-resource siteExtension 'Microsoft.Web/sites/siteextensions@2023-01-01' = {
-  parent: webApp
-  name: 'python311x64' // Python 3.11 extension
-}
+// NOTE: Site extensions are only for Windows App Service.
+// Linux App Service already provides Python runtime via linuxFxVersion.
+// Removed invalid site extension to fix provisioning error.
 
 // ========================================
 // OUTPUTS

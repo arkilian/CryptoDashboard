@@ -57,6 +57,16 @@ psql -U crypto_user -d crypto_dashboard_novo -f database/schema.sql
 psql -U postgres -d crypto_dashboard_novo -f database/data_export.sql
 ```
 
+**Nota:** O ficheiro `data_export.sql` já inclui comandos para resetar as sequences automaticamente no final. Se por alguma razão as sequences não forem atualizadas, podes executar:
+
+```bash
+# Opção 1: Script SQL
+psql -U postgres -d crypto_dashboard_novo -f database/fix_sequences.sql
+
+# Opção 2: Script Python
+python database/fix_sequences.py
+```
+
 ### Passo 4: Atualizar Configuração
 Editar o ficheiro `.env` na raiz do projeto:
 ```env

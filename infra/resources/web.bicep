@@ -71,25 +71,24 @@ resource webApp 'Microsoft.Web/sites@2023-01-01' = {
       alwaysOn: true
       ftpsState: 'Disabled'
       minTlsVersion: '1.2'
-      // Use Procfile (web: sh startup.sh) via startup command
-      appCommandLine: 'sh startup.sh'
+      // Direct startup command to avoid Procfile custom deployment issues
+      appCommandLine: 'bash startup.sh'
       appSettings: [
         {
           name: 'WEBSITES_PORT'
           value: '8000'
         }
         {
+          name: 'POST_BUILD_COMMAND'
+          value: 'chmod +x startup.sh'
+        }
+        {
           name: 'SCM_DO_BUILD_DURING_DEPLOYMENT'
-          // Build at container startup with Oryx instead of during Kudu deployment
-          value: 'false'
+          value: 'true'
         }
         {
           name: 'ENABLE_ORYX_BUILD'
           value: 'true'
-        }
-        {
-          name: 'PYTHON_VERSION'
-          value: '3.11'
         }
         {
           name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'

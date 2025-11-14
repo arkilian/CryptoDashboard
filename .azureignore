@@ -15,9 +15,21 @@ logs/
 *.temp
 
 # Local data and large CSV/JSON samples not needed at runtime
-cardano/*.csv
-cardano/*.json
-!cardano/README.md
+cardano/
+backend/
+debug_scripts/
+infra/
+tests/
+wiki/
+docs/
+__pycache__/
+*.pyc
+*.pyo
+*.log
+*.tmp
+*.tar
+*.zip
+*.gz
 
 # Docs and wiki (not needed at runtime)
 docs/

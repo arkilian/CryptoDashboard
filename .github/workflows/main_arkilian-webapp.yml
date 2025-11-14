@@ -65,15 +65,22 @@ jobs:
           slot-name: 'Production'
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_AA27047AE21C4EFA8D76F134F9761246 }}
 
-      # Pós-deploy: teste simples de conectividade à BD Azure PostgreSQL
-      # Requer que crie os seguintes GitHub Secrets: AZURE_DB_HOST, AZURE_DB_PORT (opcional, default 5432),
-      # AZURE_DB_NAME, AZURE_DB_USER, AZURE_DB_PASSWORD. O runner tem de ser autorizado na firewall do servidor.
+      # Pós-deploy: teste de conectividade à BD Azure PostgreSQL (OPCIONAL)
+      # Para ativar este passo, crie os seguintes GitHub Secrets em Settings > Secrets > Actions:
+      #   - AZURE_DB_HOST (ex: myserver.postgres.database.azure.com)
+      #   - AZURE_DB_PORT (opcional, default: 5432)
+      #   - AZURE_DB_NAME (ex: crypto_dashboard)
+      #   - AZURE_DB_USER (ex: app_user)
+      #   - AZURE_DB_PASSWORD
+      # Nota: O IP do runner GitHub deve estar autorizado na firewall do servidor PostgreSQL.
       - name: Set up Python for connectivity check
+        if: ${{ secrets.AZURE_DB_HOST != '' }}
         uses: actions/setup-python@v5
         with:
           python-version: '3.13'
 
       - name: Install minimal dependency (psycopg2) or full requirements
+        if: ${{ secrets.AZURE_DB_HOST != '' }}
         run: |
           python -m venv venv
           source venv/bin/activate
@@ -81,6 +88,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run DB connectivity check script
+        if: ${{ secrets.AZURE_DB_HOST != '' }}
         env:
           DB_HOST: ${{ secrets.AZURE_DB_HOST }}
           DB_PORT: ${{ secrets.AZURE_DB_PORT }}

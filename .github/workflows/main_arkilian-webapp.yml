@@ -64,3 +64,29 @@ jobs:
           app-name: 'arkilian-webapp'
           slot-name: 'Production'
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_AA27047AE21C4EFA8D76F134F9761246 }}
+
+      # Pós-deploy: teste simples de conectividade à BD Azure PostgreSQL
+      # Requer que crie os seguintes GitHub Secrets: AZURE_DB_HOST, AZURE_DB_PORT (opcional, default 5432),
+      # AZURE_DB_NAME, AZURE_DB_USER, AZURE_DB_PASSWORD. O runner tem de ser autorizado na firewall do servidor.
+      - name: Set up Python for connectivity check
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install minimal dependency (psycopg2) or full requirements
+        run: |
+          python -m venv venv
+          source venv/bin/activate
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run DB connectivity check script
+        env:
+          DB_HOST: ${{ secrets.AZURE_DB_HOST }}
+          DB_PORT: ${{ secrets.AZURE_DB_PORT }}
+          DB_NAME: ${{ secrets.AZURE_DB_NAME }}
+          DB_USER: ${{ secrets.AZURE_DB_USER }}
+          DB_PASSWORD: ${{ secrets.AZURE_DB_PASSWORD }}
+        run: |
+          source venv/bin/activate
+          python scripts/check_db_connectivity.py

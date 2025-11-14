@@ -1,0 +1,39 @@
+# Exclude large/unnecessary files from azd packaging (similar to .gitignore)
+
+# VCS and IDE
+.git/
+.github/
+.vscode/
+__pycache__/
+*.pyc
+*.pyo
+
+# Logs and temp
+logs/
+*.log
+*.tmp
+*.temp
+
+# Local data and large CSV/JSON samples not needed at runtime
+cardano/*.csv
+cardano/*.json
+!cardano/README.md
+
+# Docs and wiki (not needed at runtime)
+docs/
+wiki/
+*.md
+!README.md
+
+# Tests and debug scripts
+tests/
+debug_scripts/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+*.zip
+*.tar
+*.tar.gz
